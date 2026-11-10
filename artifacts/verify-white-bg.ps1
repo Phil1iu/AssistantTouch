@@ -77,12 +77,18 @@ function Lum($r,$g,$b) {
   $f = { param($v) $s = $v/255.0; if ($s -le 0.03928) { $s/12.92 } else { [math]::Pow((($s+0.055)/1.055), 2.4) } }
   0.2126*(&$f $r) + 0.7152*(&$f $g) + 0.0722*(&$f $b)
 }
-$stroke = $changes | Where-Object { $_ -match 'rgb\((\d+),' -and [int]$Matches[1] -lt 160 } | Select-Object -First 1
+# 取扫描线上最深的像素作为描边峰值（取「第一个 <160」会落在抗锯齿过渡色上，低估对比度）
+$stroke = $null; $minR = 999
+foreach ($c in $changes) {
+  if ($c -match 'rgb\((\d+),(\d+),(\d+)\)') {
+    if ([int]$Matches[1] -lt $minR) { $minR = [int]$Matches[1]; $stroke = $c }
+  }
+}
 if ($stroke) {
   $m = [regex]::Match($stroke, 'rgb\((\d+),(\d+),(\d+)\)')
   $l1 = 1.0; $l2 = Lum ([int]$m.Groups[1].Value) ([int]$m.Groups[2].Value) ([int]$m.Groups[3].Value)
   $ratio = ($l1 + 0.05) / ($l2 + 0.05)
-  "描边取样: $stroke  -> 相对纯白对比度 {0:N2}:1  (WCAG AA 正文要求 4.5:1，图形 3:1)" -f $ratio
+  "描边峰值: $stroke  -> 相对纯白对比度 {0:N2}:1  (WCAG AA 正文 4.5:1，图形 3:1)" -f $ratio
 } else {
   "警告：扫描线上未找到深色描边（<160），轮廓可能缺失"
 }
