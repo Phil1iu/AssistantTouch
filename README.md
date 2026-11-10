@@ -8,7 +8,8 @@ Windows 桌面**半透明悬浮球**（骨架阶段）。
 ## 当前功能
 - 无边框透明窗口（`WindowStyle=None` + `AllowsTransparency=True`）
 - 常驻最顶层（`Topmost=True`）、不在任务栏显示（`ShowInTaskbar=False`）
-- 72×72 半透明白色圆球（`#66FFFFFF`）+ 细描边 + 轻投影，悬停略微加深并放大 6%
+- 72×72 半透明白色圆球（`#66FFFFFF`）+ **2px 深色描边 `#99000000`** + 轻投影，悬停略微加深并放大 6%
+  - 描边是白底可见性的关键：纯半透明填充在白底上对比仅约 8%，加描边后轮廓对比度 5.57:1（实测见 `artifacts/white-bg-probe.png`）
 - 按住左键拖拽到屏幕任意位置（`DragMove()`）
 - 启动位置：屏幕居中
 

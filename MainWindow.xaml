@@ -20,16 +20,19 @@
     <Grid Background="Transparent"
           MouseLeftButtonDown="OnMouseLeftButtonDown">
 
-        <Ellipse>
+        <!-- Margin=2：给 2px 描边留出内侧空间，避免圆边描边被窗口边界裁掉一半 -->
+        <Ellipse Margin="2">
             <Ellipse.Effect>
-                <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.35" Color="Black" />
+                <DropShadowEffect BlurRadius="16" ShadowDepth="1" Opacity="0.5" Color="Black" />
             </Ellipse.Effect>
             <Ellipse.Style>
                 <Style TargetType="Ellipse">
-                    <!-- 默认：半透明白球 + 细描边 -->
+                    <!-- 默认：半透明白球 + 2px 深色描边。
+                         描边必须深色：白底上 #66FFFFFF 填充与背景对比仅约 8%（D2 实测 rgb(234,234,234) vs 255），
+                         靠不透明度加不回来，只能靠轮廓。填充保持半透明观感，不做成不透明。 -->
                     <Setter Property="Fill" Value="#66FFFFFF" />
-                    <Setter Property="Stroke" Value="#B3FFFFFF" />
-                    <Setter Property="StrokeThickness" Value="1" />
+                    <Setter Property="Stroke" Value="#99000000" />
+                    <Setter Property="StrokeThickness" Value="2" />
                     <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
                     <Setter Property="RenderTransform">
                         <Setter.Value>
@@ -37,10 +40,10 @@
                         </Setter.Value>
                     </Setter>
                     <Style.Triggers>
-                        <!-- 悬停：提高不透明度（视觉上“加深”）并轻微放大，给出可交互反馈 -->
+                        <!-- 悬停：填充略微提高不透明度，描边进一步加深（不能转白，否则白底又丢了轮廓） -->
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter Property="Fill" Value="#8CFFFFFF" />
-                            <Setter Property="Stroke" Value="#FFFFFFFF" />
+                            <Setter Property="Stroke" Value="#CC000000" />
                             <Setter Property="RenderTransform">
                                 <Setter.Value>
                                     <ScaleTransform ScaleX="1.06" ScaleY="1.06" />
