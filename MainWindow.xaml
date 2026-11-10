@@ -1,0 +1,55 @@
+﻿<Window x:Class="AssistiveTouch.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:AssistiveTouch"
+        mc:Ignorable="d"
+        Title="AssistiveTouch"
+        Width="72" Height="72"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Cursor="SizeAll">
+
+    <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
+    <Grid Background="Transparent"
+          MouseLeftButtonDown="OnMouseLeftButtonDown">
+
+        <Ellipse>
+            <Ellipse.Effect>
+                <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.35" Color="Black" />
+            </Ellipse.Effect>
+            <Ellipse.Style>
+                <Style TargetType="Ellipse">
+                    <!-- 默认：半透明白球 + 细描边 -->
+                    <Setter Property="Fill" Value="#66FFFFFF" />
+                    <Setter Property="Stroke" Value="#B3FFFFFF" />
+                    <Setter Property="StrokeThickness" Value="1" />
+                    <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
+                    <Setter Property="RenderTransform">
+                        <Setter.Value>
+                            <ScaleTransform ScaleX="1" ScaleY="1" />
+                        </Setter.Value>
+                    </Setter>
+                    <Style.Triggers>
+                        <!-- 悬停：提高不透明度（视觉上“加深”）并轻微放大，给出可交互反馈 -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Fill" Value="#8CFFFFFF" />
+                            <Setter Property="Stroke" Value="#FFFFFFFF" />
+                            <Setter Property="RenderTransform">
+                                <Setter.Value>
+                                    <ScaleTransform ScaleX="1.06" ScaleY="1.06" />
+                                </Setter.Value>
+                            </Setter>
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </Ellipse.Style>
+        </Ellipse>
+    </Grid>
+</Window>

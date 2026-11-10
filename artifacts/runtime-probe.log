@@ -1,0 +1,18 @@
+PID=37720 WS_MB=207.4 Private_MB=151.5 MainWindowHandle=0 Responding=True
+window_count=16
+HWND=78519712 class=HwndWrapper[AssistiveTouch;;7053671c-5228-4d45-a2da-4ecbf83df540] title='AssistiveTouch' visible=True topmost=True rect=(924,480)-(996,552) size=72x72 exStyle=0x80008
+HWND=854432 class=HwndWrapper[AssistiveTouch;;4f0d0b38-3d6d-4817-a982-7deff59538ee] title='Hidden Window' visible=False topmost=False rect=(156,156)-(1596,909) size=1440x753 exStyle=0x100
+HWND=205304 class=TabletPenServiceHelperClass title='WISPTIS' visible=False topmost=False rect=(0,0)-(0,0) size=0x0 exStyle=0x8000000
+HWND=1574864 class=HwndWrapper[AssistiveTouch;;50647440-6cfc-4ab5-863a-02598c2513c3] title='' visible=False topmost=False rect=(0,0)-(136,39) size=136x39 exStyle=0x100
+HWND=336440 class=HwndWrapper[AssistiveTouch;;c7cedd20-eff4-4fe4-b9db-8ffb4fbd1c1b] title='SystemResourceNotifyWindow' visible=False topmost=False rect=(0,0)-(0,0) size=0x0 exStyle=0x0
+HWND=16718584 class=HwndWrapper[AssistiveTouch;;82566fb4-b6cc-4765-9482-413278b1eeab] title='MediaContextNotificationWindow' visible=False topmost=False rect=(0,0)-(0,0) size=0x0 exStyle=0x0
+HWND=32316888 class=HwndWrapper[AssistiveTouch;;c4cc6fb2-5952-4932-824d-07a9f2ef096c] title='' visible=False topmost=False rect=(0,0)-(136,39) size=136x39 exStyle=0x100
+HWND=139790 class=SoPY_Status title='' visible=False topmost=True rect=(0,0)-(0,0) size=0x0 exStyle=0x8080088
+HWND=139826 class=CiceroUIWndFrame title='CiceroUIWndFrame' visible=False topmost=True rect=(200,200)-(400,400) size=200x200 exStyle=0x8080088
+HWND=270884 class=MSCTFIME UI title='MSCTFIME UI' visible=False topmost=True rect=(0,0)-(0,0) size=0x0 exStyle=0x8
+HWND=139864 class=SoPY_Hint title='HintWnd' visible=False topmost=True rect=(0,0)-(0,0) size=0x0 exStyle=0x80008
+HWND=139874 class=SoPY_UI title='' visible=False topmost=True rect=(0,0)-(0,0) size=0x0 exStyle=0x8
+HWND=270882 class=Sogou_TSF_UI title='Sogou_TSF_UI' visible=False topmost=True rect=(0,0)-(0,0) size=0x0 exStyle=0x8
+HWND=10030590 class=IME title='Default IME' visible=False topmost=True rect=(0,0)-(0,0) size=0x0 exStyle=0x8
+HWND=139822 class=CiceroUIWndFrame title='CiceroUIWndFrame' visible=False topmost=False rect=(0,0)-(0,0) size=0x0 exStyle=0x80
+HWND=31724412 class=IME title='Default IME' visible=False topmost=False rect=(0,0)-(0,0) size=0x0 exStyle=0x0
