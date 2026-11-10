@@ -1,0 +1,39 @@
+launched_pid=55312
+hwnd=79042268 class=HwndWrapper[AssistiveTouch;;c3b1f1fc-fb5c-4330-a799-2ca478950aac]
+initial_rect=924,480,996,552 size=72x72
+exstyle=0x80008 topmost=True toolwindow=False layered=True dpi=96
+mainwindowhandle=0
+shot=C:\repos\AssistiveTouch\artifacts\step3_float.png size=1920x1080
+drag=step3_drag_1 from_center=(960,516) target=(300,200) rect_before=924,480,996,552 rect_after=924,480,996,552 delta=(0,0)
+shot=C:\repos\AssistiveTouch\artifacts\step3_drag_1.png size=1920x1080
+drag=step3_drag_2 from_center=(960,516) target=(1600,850) rect_before=924,480,996,552 rect_after=924,480,996,552 delta=(0,0)
+shot=C:\repos\AssistiveTouch\artifacts\step3_drag_2.png size=1920x1080
+drag=step3_drag_3 from_center=(960,516) target=(960,516) rect_before=924,480,996,552 rect_after=924,480,996,552 delta=(0,0)
+shot=C:\repos\AssistiveTouch\artifacts\step3_drag_3.png size=1920x1080
+idle_working_set_bytes=216788992
+idle_working_set_mb=206.75
+idle_private_mb=152.78
+idle_peak_working_set_mb=207.09
+responding_after_idle=True
+total_runtime_s=120
+exited=False responding=True error_dialogs=0
+final_rect=924,480,996,552
+final_working_set_mb=206.75
+final_peak_working_set_mb=207.09
+handles=911 threads=54
+RESULT=OK
+
+## 拖拽复核（drag4.ps1：带光标抢占检测 + 矩形位移校验 + 重试）
+attempt=1 rect_before=3064,387 rect_after=3064,387 delta=(0,0) expected=(-2800,-223) cursor_hijacked_mid=True verified=False
+attempt=2 rect_before=3064,387 rect_after=264,164 delta=(-2800,-223) expected=(-2800,-223) cursor_hijacked_mid=False verified=True
+step=drag_1 RESULT=OK final_rect=264,164,336,236 screenshot=C:\repos\AssistiveTouch\artifacts\step3_drag_1.png
+attempt=1 rect_before=264,164 rect_after=1564,814 delta=(1300,650) expected=(1300,650) cursor_hijacked_mid=False verified=True
+step=drag_2 RESULT=OK final_rect=1564,814,1636,886 screenshot=C:\repos\AssistiveTouch\artifacts\step3_drag_2.png
+attempt=1 rect_before=1564,814 rect_after=924,480 delta=(-640,-334) expected=(-640,-334) cursor_hijacked_mid=False verified=True
+step=drag_3 RESULT=OK final_rect=924,480,996,552 screenshot=C:\repos\AssistiveTouch\artifacts\step3_drag_3.png
+
+## 备注
+- 本轮桌面被人工占用：期间检测到光标被外部移动（SetCursorPos 后 GetCursorPos 不符）、
+  窗口被带到副屏 (3064,387)，drag_1 首次尝试因此作废并重试。程序本身拖动正常。
+- MainWindowHandle 恒为 0（无 WS_EX_TOOLWINDOW 但 exStyle=0x80008，WPF 分层窗口），
+  取窗口一律用 EnumWindows 按 PID + class 前缀 HwndWrapper[AssistiveTouch。

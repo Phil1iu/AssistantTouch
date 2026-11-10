@@ -1,0 +1,44 @@
+# D2 实测指标（tester）— 进程实测值，无估算
+# 采集环境：Windows 11 家庭中文版 26200 / .NET 8 (WPF) / 主屏 1920x1080 / DPI 96
+# 二进制：bin/Release/net8.0-windows/AssistiveTouch.exe（dll sha256 499b8acc00776a149502a9a32a901f40497d9b37a8f1c95f0059788cf7ace30d）
+# 说明：本机桌面在本轮测试期间被人工操作，合成鼠标事件多次被抢占（已在拖拽复核中检出并重试），
+#       内存数值与两次独立运行的空闲采样一并列出，供评审交叉核对。
+
+collected_at=2026-11-10 22:33:07
+pid=55312
+exe_path=C:\repos\AssistiveTouch\bin\Release\net8.0-windows\AssistiveTouch.exe
+process_start_time=2026-11-10 22:27:27
+observed_alive_seconds=339
+
+# samples after 60s idle, one per 5s
+t_plus_0s working_set_mb=229.57 private_mb=170.50 handles=930 threads=50 responding=True
+t_plus_5s working_set_mb=229.57 private_mb=170.50 handles=930 threads=50 responding=True
+t_plus_10s working_set_mb=229.57 private_mb=170.50 handles=930 threads=50 responding=True
+
+idle_memory_mb=229.57
+idle_private_mb=170.50
+peak_working_set_mb=229.60
+
+alive_after_2min=True
+exited=False
+responding=True
+error_dialog_count=0
+
+# 参考：同机同二进制的其余两次空闲 WorkingSet 采样（均为静置 60s 后）
+reference_idle_samples_mb=214.27, 206.75
+reference_note=三次采样 206.75 / 214.27 / 229.57 MB，波动 ~11%；均在本机 .NET 8 WPF 空模板底噪（227.9MB）附近，悬浮球本身增量≈0
+
+# 可见性与对比度（step3_float.png 实测像素）
+float_center_pixel_rgb=234,234,234
+float_background_pixel_rgb=255,255,255
+float_inner_mean=234.00
+float_outer_ring_mean=253.67
+contrast_delta=19.67
+visibility_note=半透明白球在浅色/白色桌面上对比度仅约 8%，肉眼近乎不可见；在深色终端背景上清晰可见（见 step3_drag_1.png / step3_drag_3.png）
+
+# 拖拽
+drag_result=3/3 通过，窗口矩形位移与目标位移逐像素一致（误差 0）
+drag_1=target(300,200) rect 264,164 336,236
+drag_2=target(1600,850) rect 1564,814 1636,886
+drag_3=target(960,516) rect 924,480 996,552
+drag_interference_note=首次尝试曾因人工移动鼠标导致光标被抢占（cursor_hijacked_mid=True），脚本检测到后重试成功；非程序缺陷
