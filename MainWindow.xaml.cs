@@ -2,6 +2,7 @@
 using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 
 namespace AssistantTouch;
 
@@ -23,7 +24,8 @@ public partial class MainWindow : Window
     /// <remarks>
     /// 必须在 <c>InitializeComponent()</c> 之后、窗口显示之前执行：
     /// 先切到 <c>Manual</c> 再设 Left/Top，窗口才不会先居中再跳一次。
-    /// 保存过已断开显示器的坐标时，按虚拟桌面矩形钳制（见 <see cref="ClampToVirtualScreen"/>）。
+    /// 保存位置会按「窗口中心点所在（或最近）显示器」的工作区钳制，
+    /// 因此双屏错位死区里只剩 21px 可见的旧坐标会被移回最近显示器。
     /// </remarks>
     private void RestoreSavedPosition()
     {
@@ -33,22 +35,40 @@ public partial class MainWindow : Window
         }
 
         WindowStartupLocation = WindowStartupLocation.Manual;
-        Left = ClampToVirtualScreen(savedLeft, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenWidth, Width);
-        Top = ClampToVirtualScreen(savedTop, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenHeight, Height);
+        Point clamped = ClampToNearestMonitor(savedLeft, savedTop);
+        Left = clamped.X;
+        Top = clamped.Y;
     }
 
     /// <summary>
-    /// 把坐标钳进虚拟桌面矩形（所有显示器的外接矩形）。
+    /// 拖拽结束后把窗口完整钳进最近显示器工作区，避免把球拖到屏幕外后找不回来。
+    /// </summary>
+    private void ClampBallToNearestMonitor()
+    {
+        Point clamped = ClampToNearestMonitor(Left, Top);
+        Left = clamped.X;
+        Top = clamped.Y;
+    }
+
+    /// <summary>
+    /// 把窗口左上角钳进「窗口中心点所在（或最近）显示器」的工作区，返回钳制后的左上角。
     /// </summary>
     /// <remarks>
-    /// 外接矩形不等于显示器并集：多显示器错位时矩形角落可能没有物理屏覆盖（已知限制，见 README）。
-    /// 虚拟桌面比窗口还小时上界会小于下界，此时结果落在 <paramref name="origin"/>，不保证完整可见。
-    /// <paramref name="extent"/> 是窗口在该轴上的尺寸：横向传 <c>Width</c>，竖向传 <c>Height</c>。
+    /// 用窗口中心点判定归属显示器：跨屏拖动时按球心计；中心落在所有显示器之外时，
+    /// Win32 <c>MONITOR_DEFAULTTONEAREST</c> 取最近显示器。
+    /// 若工作区比窗口还小（极端情况），上界小于下界，结果落在工作区左上角。
     /// </remarks>
-    private double ClampToVirtualScreen(double value, double origin, double size, double extent)
+    private Point ClampToNearestMonitor(double desiredLeft, double desiredTop)
     {
-        double max = origin + size - extent;
-        return Math.Max(origin, Math.Min(max, value));
+        DpiScale dpi = VisualTreeHelper.GetDpi(this);
+        Rect workArea = MonitorLayout.GetWorkAreaAt(
+            desiredLeft + Width / 2,
+            desiredTop + Height / 2,
+            dpi);
+
+        double left = Math.Max(workArea.Left, Math.Min(workArea.Right - Width, desiredLeft));
+        double top = Math.Max(workArea.Top, Math.Min(workArea.Bottom - Height, desiredTop));
+        return new Point(left, top);
     }
 
     /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
@@ -62,8 +82,8 @@ public partial class MainWindow : Window
     /// 按住左键进入系统原生拖拽循环，可把悬浮球拖到屏幕任意位置。
     /// </summary>
     /// <remarks>
-    /// 拖拽结束（<c>DragMove()</c> 返回）立刻保存新位置：这样即使进程随后被强杀，
-    /// 下次启动也能回到拖到的地方，而不是只在正常退出时才落盘。
+    /// 拖拽结束（<c>DragMove()</c> 返回）先把球钳进最近显示器工作区（拖到屏幕边缘/外面松手也不会丢），
+    /// 再保存新位置：这样即使进程随后被强杀，下次启动也能回到拖到的地方。
     /// 冲突预警：DragMove() 会独占鼠标并阻塞本次按压的后续事件，因此日后再加入
     /// “单击打开面板 / 双击”时不能与 DragMove 直接并存。届时应改为手动记录按下
     /// 坐标与位移阈值（例如 4px）：超过阈值才移动窗口，未超过则判定为单击；
@@ -74,6 +94,7 @@ public partial class MainWindow : Window
         try
         {
             DragMove();
+            ClampBallToNearestMonitor();
             WindowPositionStore.Save(Left, Top);
         }
         catch (InvalidOperationException)
