@@ -116,7 +116,10 @@ public partial class MainWindow : Window
         _isDragging = false;
         _pointerDownScreen = PointToScreen(e.GetPosition(this));
         _windowAtPointerDown = new Point(Left, Top);
-        CaptureMouse();
+
+        // 必须捕获到 Grid 而不是 Window：WPF 捕获后鼠标事件只路由到捕获元素，
+        // 处理器在 Grid 上，若捕获 Window，后续 MouseMove/MouseLeftButtonUp 不会到达 Grid。
+        RootGrid.CaptureMouse();
         e.Handled = true;
     }
 
@@ -168,9 +171,9 @@ public partial class MainWindow : Window
         _isPointerDown = false;
         _isDragging = false;
 
-        if (IsMouseCaptured)
+        if (RootGrid.IsMouseCaptured)
         {
-            ReleaseMouseCapture();
+            RootGrid.ReleaseMouseCapture();
         }
 
         if (wasDragging)
