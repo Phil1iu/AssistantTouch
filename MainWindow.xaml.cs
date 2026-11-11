@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -16,6 +17,12 @@ public partial class MainWindow : Window
 {
     /// <summary>超过该设备像素位移才判定为拖拽，否则视为单击/轻触。</summary>
     private const double DragThresholdPixels = 4;
+
+    /// <summary>系统双击时间（毫秒）；读取失败时的回退值。</summary>
+    private const int FallbackDoubleClickMilliseconds = 500;
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
 
     private enum PointerSource
     {
@@ -39,11 +46,29 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        _singleClickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _singleClickTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(GetSingleClickDelayMilliseconds())
+        };
         _singleClickTimer.Tick += OnSingleClickTimerTick;
         Loaded += OnWindowLoaded;
 
         RestoreSavedPosition();
+    }
+
+    /// <summary>
+    /// 单击延迟取系统双击时间（<c>GetDoubleClickTime</c>），钳制到 200–1000ms：
+    /// 保证系统判定为双击的第二击总能先进入 <c>ClickCount == 2</c> 分支，不会先弹出菜单。
+    /// </summary>
+    private static int GetSingleClickDelayMilliseconds()
+    {
+        int systemDelay = (int)GetDoubleClickTime();
+        if (systemDelay <= 0)
+        {
+            return FallbackDoubleClickMilliseconds;
+        }
+
+        return Math.Clamp(systemDelay, 200, 1000);
     }
 
     /// <summary>
@@ -121,6 +146,7 @@ public partial class MainWindow : Window
     /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
     protected override void OnClosing(CancelEventArgs e)
     {
+        CancelPendingClick();
         WindowPositionStore.Save(Left, Top);
         base.OnClosing(e);
     }
@@ -216,16 +242,24 @@ public partial class MainWindow : Window
     /// </remarks>
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if (e.ClickCount == 2)
+        // 触摸提升的兼容鼠标事件一律忽略：触摸由 Touch 路径负责。
+        if (e.StylusDevice?.TabletDevice.Type == TabletDeviceType.Touch)
         {
-            _singleClickTimer.Stop();
-            ResetToPrimaryCenter();
             e.Handled = true;
             return;
         }
 
+        // 输入源互斥必须优先于双击判断：触摸进行中不接受鼠标双击。
         if (_activeSource != PointerSource.None)
         {
+            e.Handled = true;
+            return;
+        }
+
+        if (e.ClickCount == 2)
+        {
+            CancelPendingClick();
+            ResetToPrimaryCenter();
             e.Handled = true;
             return;
         }
@@ -235,15 +269,40 @@ public partial class MainWindow : Window
 
         // 必须捕获到 Grid 而不是 Window：WPF 捕获后鼠标事件只路由到捕获元素，
         // 处理器在 Grid 上，若捕获 Window，后续 MouseMove/MouseLeftButtonUp 不会到达 Grid。
-        RootGrid.CaptureMouse();
+        if (!RootGrid.CaptureMouse())
+        {
+            // 捕获失败：回退状态，不进入拖拽/单击，避免状态卡住。
+            EndPointerInteraction();
+            e.Handled = true;
+            return;
+        }
+
         e.Handled = true;
     }
 
-    /// <summary>左键拖动（未按下左键时忽略）。</summary>
+    /// <summary>左键拖动；若捕获仍在但左键已松开（Up 丢失），按拖拽结束处理。</summary>
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
-        if (_activeSource != PointerSource.Mouse || e.LeftButton != MouseButtonState.Pressed)
+        if (_activeSource != PointerSource.Mouse)
         {
+            return;
+        }
+
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            bool wasDragging = EndPointerInteraction();
+
+            if (RootGrid.IsMouseCaptured)
+            {
+                RootGrid.ReleaseMouseCapture();
+            }
+
+            if (wasDragging)
+            {
+                FinishDrag();
+            }
+
+            e.Handled = true;
             return;
         }
 
@@ -252,7 +311,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 左键抬起：拖拽过则钳制并保存；没拖拽则延时 250ms 视为单击（打开菜单）。
+    /// 左键抬起：拖拽过则钳制并保存；没拖拽则延时到系统双击时间后视为单击（打开菜单）。
     /// </summary>
     private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
@@ -285,12 +344,35 @@ public partial class MainWindow : Window
     {
         if (_activeSource == PointerSource.Mouse)
         {
-            _isPointerDown = false;
-            _isDragging = false;
-            _activeSource = PointerSource.None;
+            EndPointerInteraction();
+            CancelPendingClick();
         }
 
         base.OnLostMouseCapture(e);
+    }
+
+    /// <summary>触摸捕获丢失（被系统/其他元素夺走）：清理状态，避免后续输入被忽略。</summary>
+    private void OnLostTouchCapture(object sender, TouchEventArgs e)
+    {
+        if (_activeSource == PointerSource.Touch && e.TouchDevice.Id == _activeTouchId)
+        {
+            EndPointerInteraction();
+            CancelPendingClick();
+        }
+    }
+
+    /// <summary>右键按下：停止尚未触发的单击计时器，避免与右键菜单重复打开。</summary>
+    private void OnMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        CancelPendingClick();
+    }
+
+    /// <summary>取消尚未触发的单击/轻触（右键、关闭、托盘隐藏、捕获丢失时调用）。</summary>
+    internal void CancelPendingClick()
+    {
+        _singleClickTimer.Stop();
+        _pendingTapWasTouch = false;
+        _touchDoubleTapPending = false;
     }
 
     /// <summary>
@@ -305,7 +387,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 若上一次「触摸」轻触留下的 250ms 菜单计时器还未到点，这一次按下就是触摸双击。
+        // 若上一次「触摸」轻触留下的菜单计时器还未到点，这一次按下就是触摸双击。
         if (_singleClickTimer.IsEnabled && _pendingTapWasTouch)
         {
             _singleClickTimer.Stop();
@@ -319,7 +401,16 @@ public partial class MainWindow : Window
 
         _activeTouchId = e.TouchDevice.Id;
         BeginPointerInteraction(PointerSource.Touch, PointToScreen(e.GetTouchPoint(this).Position));
-        RootGrid.CaptureTouch(e.TouchDevice);
+
+        if (!RootGrid.CaptureTouch(e.TouchDevice))
+        {
+            // 捕获失败：回退状态，不进入拖拽/轻触。
+            _touchDoubleTapPending = false;
+            EndPointerInteraction();
+            e.Handled = true;
+            return;
+        }
+
         e.Handled = true;
     }
 
@@ -337,7 +428,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 触摸抬起：拖拽过则钳制保存；轻触延时 250ms 打开菜单；双击则回到主屏中央。
+    /// 触摸抬起：拖拽过则钳制保存；轻触在系统双击时间后打开菜单；双击则回到主屏中央。
     /// </summary>
     private void OnTouchUp(object sender, TouchEventArgs e)
     {
@@ -362,7 +453,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            // 轻触：与单击一致，250ms 后打开菜单（留出双击判定窗口）。
+            // 轻触：与单击一致，延时到系统双击时间后打开菜单（留出双击判定窗口）。
             _pendingTapWasTouch = true;
             _singleClickTimer.Start();
         }
@@ -410,6 +501,8 @@ public partial class MainWindow : Window
     /// <summary>菜单打开时按 HKCU 注册表的实际状态刷新「开机自启」勾选。</summary>
     private void OnBallMenuOpened(object? sender, RoutedEventArgs e)
     {
+        CancelPendingClick();
+
         if (FindMenuItem("开机自启") is MenuItem item)
         {
             item.IsChecked = AutostartService.IsEnabled();

@@ -66,6 +66,8 @@ internal sealed class TrayIconController : IDisposable
     {
         if (_window.IsVisible)
         {
+            // 隐藏前取消尚未触发的单击计时器，避免隐藏后菜单弹出。
+            _window.CancelPendingClick();
             _window.Hide();
         }
         else
@@ -133,14 +135,41 @@ internal sealed class TrayIconController : IDisposable
         }
 
         _disposed = true;
-        _notifyIcon.Visible = false;
-        _notifyIcon.Dispose();
-        _menu.Dispose();
-        _icon.Dispose();
 
-        if (_iconHandle != IntPtr.Zero)
+        try
         {
-            DestroyIcon(_iconHandle);
+            _notifyIcon.Visible = false;
+            _notifyIcon.Dispose();
+        }
+        finally
+        {
+            // 即使 NotifyIcon 释放失败，也确保菜单、图标与 HICON 被释放。
+            try
+            {
+                _menu.Dispose();
+            }
+            catch (Exception)
+            {
+            }
+
+            try
+            {
+                _icon.Dispose();
+            }
+            catch (Exception)
+            {
+            }
+
+            if (_iconHandle != IntPtr.Zero)
+            {
+                try
+                {
+                    DestroyIcon(_iconHandle);
+                }
+                catch (Exception)
+                {
+                }
+            }
         }
     }
 }

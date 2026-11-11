@@ -49,7 +49,17 @@ public partial class App : Application
         var mainWindow = new MainWindow();
         MainWindow = mainWindow;
         mainWindow.Show();
-        _trayIconController = new TrayIconController(mainWindow);
+
+        try
+        {
+            _trayIconController = new TrayIconController(mainWindow);
+        }
+        catch (Exception ex)
+        {
+            // 托盘创建失败不阻断启动；悬浮球与菜单仍可用。
+            Debug.WriteLine($"Tray icon creation failed: {ex}");
+            _trayIconController = null;
+        }
     }
 
     /// <summary>
