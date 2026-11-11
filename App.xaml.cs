@@ -1,4 +1,6 @@
-﻿using System.Threading;
+﻿using System.Diagnostics;
+using System.Security.Principal;
+using System.Threading;
 using System.Windows;
 
 namespace AssistantTouch;
@@ -13,17 +15,24 @@ namespace AssistantTouch;
 /// </remarks>
 public partial class App : Application
 {
-    // 选 Local\ 而不是 Global\：本应用是每用户桌面工具，按登录会话隔离即可；
-    // Global\ 在多用户会话、受限权限或提权场景下更容易撞权限问题。
-    private const string SingleInstanceMutexName = @"Local\AssistantTouch.SingleInstance";
-
     private Mutex? _singleInstanceMutex;
     private bool _ownsSingleInstanceMutex;
     private TrayIconController? _trayIconController;
 
     protected override void OnStartup(StartupEventArgs e)
     {
-        _singleInstanceMutex = new Mutex(initiallyOwned: true, SingleInstanceMutexName, out bool createdNew);
+        bool createdNew;
+        try
+        {
+            _singleInstanceMutex = CreateSingleInstanceMutex(out createdNew);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Global\ 与 Local\ 都拿不到互斥量：按「已有实例」处理，直接退出，不建窗口/不写配置。
+            Debug.WriteLine($"Single-instance mutex creation failed: {ex.Message}");
+            Shutdown();
+            return;
+        }
 
         if (!createdNew)
         {
@@ -41,6 +50,28 @@ public partial class App : Application
         MainWindow = mainWindow;
         mainWindow.Show();
         _trayIconController = new TrayIconController(mainWindow);
+    }
+
+    /// <summary>
+    /// 创建 per-user 单实例互斥量：优先 <c>Global\AssistantTouch.SingleInstance.&lt;SID&gt;</c>
+    /// （同一用户跨会话互斥、不同用户各一个）；权限不足时回退 <c>Local\AssistantTouch.SingleInstance.&lt;SID&gt;</c>。
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">Global\ 与 Local\ 都无法创建。</exception>
+    private static Mutex CreateSingleInstanceMutex(out bool createdNew)
+    {
+        string userSid = WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
+        string globalName = $@"Global\AssistantTouch.SingleInstance.{userSid}";
+
+        try
+        {
+            return new Mutex(initiallyOwned: true, globalName, out createdNew);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Debug.WriteLine($"Global single-instance mutex unavailable; falling back to Local. ({globalName})");
+            string localName = $@"Local\AssistantTouch.SingleInstance.{userSid}";
+            return new Mutex(initiallyOwned: true, localName, out createdNew);
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)

@@ -66,6 +66,27 @@ public partial class MainWindow : Window
         Point clamped = ClampToNearestMonitor(savedLeft, savedTop);
         Left = clamped.X;
         Top = clamped.Y;
+
+        // 启动钳制后若值变化，立即回写：避免强杀后仍留着越界的旧值。
+        if (clamped.X != savedLeft || clamped.Y != savedTop)
+        {
+            WindowPositionStore.Save(clamped.X, clamped.Y);
+        }
+    }
+
+    /// <summary>
+    /// 钳制到最近显示器工作区；只有位置真的变化时才回写。
+    /// </summary>
+    private void ClampBallToNearestMonitorAndSaveIfMoved()
+    {
+        double oldLeft = Left;
+        double oldTop = Top;
+        ClampBallToNearestMonitor();
+
+        if (Left != oldLeft || Top != oldTop)
+        {
+            WindowPositionStore.Save(Left, Top);
+        }
     }
 
     /// <summary>
@@ -115,8 +136,7 @@ public partial class MainWindow : Window
     /// </remarks>
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
-        ClampBallToNearestMonitor();
-        WindowPositionStore.Save(Left, Top);
+        ClampBallToNearestMonitorAndSaveIfMoved();
     }
 
     /// <summary>
@@ -125,8 +145,7 @@ public partial class MainWindow : Window
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
         base.OnDpiChanged(oldDpi, newDpi);
-        ClampBallToNearestMonitor();
-        WindowPositionStore.Save(Left, Top);
+        ClampBallToNearestMonitorAndSaveIfMoved();
     }
 
     /// <summary>
