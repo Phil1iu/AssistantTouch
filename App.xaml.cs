@@ -19,6 +19,7 @@ public partial class App : Application
 
     private Mutex? _singleInstanceMutex;
     private bool _ownsSingleInstanceMutex;
+    private TrayIconController? _trayIconController;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -36,12 +37,17 @@ public partial class App : Application
         _ownsSingleInstanceMutex = true;
         base.OnStartup(e);
 
-        MainWindow = new MainWindow();
-        MainWindow.Show();
+        var mainWindow = new MainWindow();
+        MainWindow = mainWindow;
+        mainWindow.Show();
+        _trayIconController = new TrayIconController(mainWindow);
     }
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _trayIconController?.Dispose();
+        _trayIconController = null;
+
         if (_ownsSingleInstanceMutex && _singleInstanceMutex is not null)
         {
             try

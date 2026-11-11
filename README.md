@@ -22,6 +22,9 @@ Windows 桌面**极简白色悬浮球**（骨架阶段）。
   - **关于**：显示名称、构建版本（优先取带 `+<commit>` 戳的 InformationalVersion）与仓库地址
   - **退出**：弹确认框「退出 AssistantTouch？」，**默认按钮为「否」**（直接回车不退出），选「是」才退出
   - 退出走 WPF 正常关闭 `Application.Current.Shutdown()`，不需要再 `taskkill`
+- **托盘图标**（任务栏通知区）：白色圆球图标；双击切换悬浮球显示/隐藏
+  - 托盘菜单：显示/隐藏悬浮球、重置位置、关于、退出
+- **开机自启**：右键菜单「开机自启」可勾选/取消；写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `AssistantTouch`，值为带引号的 exe 完整路径；只影响当前用户，不碰 HKLM
 - **单实例**：同一登录会话只允许一个进程；第二次启动直接退出，不创建窗口、不读写位置文件（命名互斥量 `Local\AssistantTouch.SingleInstance`）
 - **位置记忆**：拖到哪，下次启动就回到哪
   - 存储：`%LOCALAPPDATA%\AssistantTouch\window.json`，格式 `{"left": 924, "top": 480}`，单位 WPF DIU（不是物理像素）

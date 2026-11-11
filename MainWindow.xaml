@@ -27,10 +27,11 @@
              右键由 ContextMenuService 自动弹出；左键单击（无拖动）也会在 250ms 后打开同一个菜单。
              拖拽改为手动实现（4px 阈值），因此不再使用 DragMove()。 -->
         <Grid.ContextMenu>
-            <ContextMenu>
+            <ContextMenu Opened="OnBallMenuOpened">
                 <MenuItem Header="重置位置" Click="OnResetPositionClick" />
-                <MenuItem Header="关于" Click="OnAboutClick" />
+                <MenuItem Header="开机自启" IsCheckable="True" Click="OnAutostartClick" />
                 <Separator />
+                <MenuItem Header="关于" Click="OnAboutClick" />
                 <MenuItem Header="退出" Click="OnExitClick" />
             </ContextMenu>
         </Grid.ContextMenu>

@@ -224,6 +224,43 @@ public partial class MainWindow : Window
         ResetToPrimaryCenter();
     }
 
+    /// <summary>菜单打开时按 HKCU 注册表的实际状态刷新「开机自启」勾选。</summary>
+    private void OnBallMenuOpened(object? sender, RoutedEventArgs e)
+    {
+        if (FindMenuItem("开机自启") is MenuItem item)
+        {
+            item.IsChecked = AutostartService.IsEnabled();
+        }
+    }
+
+    /// <summary>切换开机自启；以注册表读回的实际状态为准（写失败时勾选会回弹）。</summary>
+    private void OnAutostartClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuItem item)
+        {
+            AutostartService.SetEnabled(item.IsChecked);
+            item.IsChecked = AutostartService.IsEnabled();
+        }
+    }
+
+    private MenuItem? FindMenuItem(string header)
+    {
+        if (RootGrid.ContextMenu is not ContextMenu menu)
+        {
+            return null;
+        }
+
+        foreach (object entry in menu.Items)
+        {
+            if (entry is MenuItem item && string.Equals(item.Header as string, header, StringComparison.Ordinal))
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>
     /// 显示「关于」对话框；右键菜单与托盘菜单共用。
     /// </summary>
