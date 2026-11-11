@@ -16,6 +16,84 @@
         WindowStartupLocation="CenterScreen"
         Cursor="SizeAll">
 
+    <!-- 浅色菜单主题：白底、1px #1F000000 边、6px 圆角、内边距 4、悬停 #F2F2F2、
+         分隔线 #E5E5E5、文字深灰 #1A1A1A。只改外观，不改菜单项与行为。 -->
+    <Window.Resources>
+        <Style x:Key="BallContextMenuStyle" TargetType="ContextMenu">
+            <Setter Property="Background" Value="#FFFFFFFF" />
+            <Setter Property="BorderBrush" Value="#1F000000" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BallMenuItemStyle" TargetType="MenuItem">
+            <Setter Property="Foreground" Value="#1A1A1A" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="ItemRoot"
+                                Background="Transparent"
+                                CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="CheckMark"
+                                           Grid.Column="0"
+                                           Text="✓"
+                                           FontSize="11"
+                                           Foreground="#1A1A1A"
+                                           VerticalAlignment="Center"
+                                           Visibility="Collapsed" />
+                                <ContentPresenter Grid.Column="1"
+                                                  ContentSource="Header"
+                                                  RecognizesAccessKey="True"
+                                                  VerticalAlignment="Center" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="ItemRoot" Property="Background" Value="#F2F2F2" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#9A9A9A" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="BallMenuSeparatorStyle" TargetType="Separator">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Separator">
+                        <Border Height="1" Background="#E5E5E5" Margin="6,4" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
     <Grid x:Name="RootGrid"
           Background="Transparent"
@@ -27,12 +105,12 @@
              右键由 ContextMenuService 自动弹出；左键单击（无拖动）也会在 250ms 后打开同一个菜单。
              拖拽改为手动实现（4px 阈值），因此不再使用 DragMove()。 -->
         <Grid.ContextMenu>
-            <ContextMenu Opened="OnBallMenuOpened">
-                <MenuItem Header="重置位置" Click="OnResetPositionClick" />
-                <MenuItem Header="开机自启" IsCheckable="True" Click="OnAutostartClick" />
-                <Separator />
-                <MenuItem Header="关于" Click="OnAboutClick" />
-                <MenuItem Header="退出" Click="OnExitClick" />
+            <ContextMenu Opened="OnBallMenuOpened" Style="{StaticResource BallContextMenuStyle}">
+                <MenuItem Header="重置位置" Click="OnResetPositionClick" Style="{StaticResource BallMenuItemStyle}" />
+                <MenuItem Header="开机自启" IsCheckable="True" Click="OnAutostartClick" Style="{StaticResource BallMenuItemStyle}" />
+                <Separator Style="{StaticResource BallMenuSeparatorStyle}" />
+                <MenuItem Header="关于" Click="OnAboutClick" Style="{StaticResource BallMenuItemStyle}" />
+                <MenuItem Header="退出" Click="OnExitClick" Style="{StaticResource BallMenuItemStyle}" />
             </ContextMenu>
         </Grid.ContextMenu>
 
