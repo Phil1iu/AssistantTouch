@@ -111,7 +111,7 @@ public partial class MainWindow : Window
         string version = GetDisplayVersion();
         MessageBox.Show(
             this,
-            $"AssistiveTouch\n版本 {version}\nhttps://github.com/Phil1iu/AssistiveTouch",
+            $"AssistiveTouch\n版本 {version}\nhttps://github.com/Phil1iu/AssistantTouch",
             "关于",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
