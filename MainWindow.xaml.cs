@@ -23,7 +23,7 @@ public partial class MainWindow : Window
     /// <remarks>
     /// 必须在 <c>InitializeComponent()</c> 之后、窗口显示之前执行：
     /// 先切到 <c>Manual</c> 再设 Left/Top，窗口才不会先居中再跳一次。
-    /// 保存过已断开显示器的坐标时，按虚拟桌面把窗口完整钳回来。
+    /// 保存过已断开显示器的坐标时，按虚拟桌面矩形钳制（见 <see cref="ClampToVirtualScreen"/>）。
     /// </remarks>
     private void RestoreSavedPosition()
     {
@@ -33,19 +33,21 @@ public partial class MainWindow : Window
         }
 
         WindowStartupLocation = WindowStartupLocation.Manual;
-        Left = ClampToVirtualScreen(savedLeft, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenWidth);
-        Top = ClampToVirtualScreen(savedTop, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenHeight);
+        Left = ClampToVirtualScreen(savedLeft, SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenWidth, Width);
+        Top = ClampToVirtualScreen(savedTop, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenHeight, Height);
     }
 
     /// <summary>
-    /// 把坐标钳进虚拟桌面，保证窗口（含 72px 全宽）完整落在所有显示器组成的区域内。
+    /// 把坐标钳进虚拟桌面矩形（所有显示器的外接矩形）。
     /// </summary>
     /// <remarks>
-    /// 虚拟桌面比窗口还小时上界会小于下界，此时结果落在 <paramref name="origin"/>，仍然完整可见。
+    /// 外接矩形不等于显示器并集：多显示器错位时矩形角落可能没有物理屏覆盖（已知限制，见 README）。
+    /// 虚拟桌面比窗口还小时上界会小于下界，此时结果落在 <paramref name="origin"/>，不保证完整可见。
+    /// <paramref name="extent"/> 是窗口在该轴上的尺寸：横向传 <c>Width</c>，竖向传 <c>Height</c>。
     /// </remarks>
-    private double ClampToVirtualScreen(double value, double origin, double size)
+    private double ClampToVirtualScreen(double value, double origin, double size, double extent)
     {
-        double max = origin + size - Width;
+        double max = origin + size - extent;
         return Math.Max(origin, Math.Min(max, value));
     }
 
@@ -97,20 +99,37 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 右键菜单「关于」：显示名称、程序集版本与仓库地址。
+    /// 右键菜单「关于」：显示名称、构建版本与仓库地址。
     /// </summary>
     /// <remarks>
     /// 弹窗必须带 owner（this）：窗口是 Topmost + 无边框，无 owner 的弹窗可能被压在球后面。
+    /// 版本优先取带构建戳的 <see cref="AssemblyInformationalVersionAttribute"/>，
+    /// 便于用户报障时定位具体 commit；取不到再回落程序集版本。
     /// </remarks>
     private void OnAboutClick(object sender, RoutedEventArgs e)
     {
-        Version? version = Assembly.GetExecutingAssembly().GetName().Version;
+        string version = GetDisplayVersion();
         MessageBox.Show(
             this,
-            $"AssistiveTouch\n版本 {version?.ToString() ?? "未知"}\nhttps://github.com/Phil1iu/AssistiveTouch",
+            $"AssistiveTouch\n版本 {version}\nhttps://github.com/Phil1iu/AssistiveTouch",
             "关于",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
+    }
+
+    /// <summary>
+    /// 取「关于」要显示的版本：优先 InformationalVersion（如 <c>1.0.0+8e4f46d…</c>），否则回落 AssemblyVersion。
+    /// </summary>
+    private static string GetDisplayVersion()
+    {
+        Assembly assembly = Assembly.GetExecutingAssembly();
+        string? informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (!string.IsNullOrWhiteSpace(informational))
+        {
+            return informational;
+        }
+
+        return assembly.GetName().Version?.ToString() ?? "未知";
     }
 
     /// <summary>

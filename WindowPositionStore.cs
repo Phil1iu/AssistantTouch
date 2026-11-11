@@ -10,7 +10,7 @@ namespace AssistiveTouch;
 /// <remarks>
 /// 读：文件不存在 / JSON 损坏 / 字段缺失 / 字段不是数字，一律按「没有保存过位置」处理，
 /// 由调用方回落 XAML 的 CenterScreen；任何异常都不得抛到 UI 线程。
-/// 写：先写同目录临时文件再覆盖移动，避免留下半截 JSON；写盘失败静默忽略，
+/// 写：先写同目录临时文件（文件名含进程 ID，多实例互不干扰）再覆盖移动，避免留下半截 JSON；写盘失败静默忽略，
 /// 不能因为磁盘/权限问题阻断拖拽或退出。
 /// </remarks>
 internal static class WindowPositionStore
@@ -74,7 +74,8 @@ internal static class WindowPositionStore
             return;
         }
 
-        string tempPath = FilePath + ".tmp";
+        // 临时文件名带进程 ID：多实例同时保存时不会互相覆盖/删除对方的临时文件。
+        string tempPath = $"{FilePath}.{Environment.ProcessId}.tmp";
 
         try
         {
