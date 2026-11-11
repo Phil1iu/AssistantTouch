@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 
-namespace AssistiveTouch;
+namespace AssistantTouch;
 
 /// <summary>
 /// 桌面悬浮球主窗口：无边框、置顶、半透明、可鼠标拖拽，并记忆上次位置。
@@ -111,7 +111,7 @@ public partial class MainWindow : Window
         string version = GetDisplayVersion();
         MessageBox.Show(
             this,
-            $"AssistiveTouch\n版本 {version}\nhttps://github.com/Phil1iu/AssistantTouch",
+            $"AssistantTouch\n版本 {version}\nhttps://github.com/Phil1iu/AssistantTouch",
             "关于",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
@@ -144,8 +144,8 @@ public partial class MainWindow : Window
     {
         MessageBoxResult result = MessageBox.Show(
             this,
-            "退出 AssistiveTouch？",
-            "AssistiveTouch",
+            "退出 AssistantTouch？",
+            "AssistantTouch",
             MessageBoxButton.YesNo,
             MessageBoxImage.Question,
             MessageBoxResult.No);

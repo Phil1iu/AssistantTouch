@@ -1,26 +1,36 @@
 using System.IO;
 using System.Text.Json;
 
-namespace AssistiveTouch;
+namespace AssistantTouch;
 
 /// <summary>
-/// 悬浮球位置持久化：<c>%LOCALAPPDATA%\AssistiveTouch\window.json</c>，
+/// 悬浮球位置持久化：<c>%LOCALAPPDATA%\AssistantTouch\window.json</c>，
 /// 内容形如 <c>{"left": 924, "top": 480}</c>，单位是 WPF DIU（不是物理像素、不是窗口句柄）。
 /// </summary>
 /// <remarks>
 /// 读：文件不存在 / JSON 损坏 / 字段缺失 / 字段不是数字，一律按「没有保存过位置」处理，
 /// 由调用方回落 XAML 的 CenterScreen；任何异常都不得抛到 UI 线程。
+/// 迁移：sprint-05 从 <c>AssistiveTouch</c> 改名而来。新路径不存在、旧路径
+/// <c>%LOCALAPPDATA%\AssistiveTouch\window.json</c> 存在且合法时，读一次并立即写入新路径
+/// （不删除旧文件）；之后只读写新路径。
 /// 写：先写同目录临时文件（文件名含进程 ID，多实例互不干扰）再覆盖移动，避免留下半截 JSON；写盘失败静默忽略，
 /// 不能因为磁盘/权限问题阻断拖拽或退出。
 /// </remarks>
 internal static class WindowPositionStore
 {
-    private static readonly string DirectoryPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "AssistiveTouch");
+    private static readonly string LocalAppDataPath =
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+    private static readonly string DirectoryPath = Path.Combine(LocalAppDataPath, "AssistantTouch");
 
     /// <summary>位置文件的完整路径。</summary>
     public static string FilePath { get; } = Path.Combine(DirectoryPath, "window.json");
+
+    /// <summary>
+    /// 改名前的旧位置文件路径：只用于一次性迁移（sprint-05：AssistiveTouch → AssistantTouch）。
+    /// </summary>
+    private static readonly string LegacyFilePath =
+        Path.Combine(LocalAppDataPath, "AssistiveTouch", "window.json");
 
     /// <summary>
     /// 读取上次保存的位置。成功返回 <c>true</c>；缺失或非法返回 <c>false</c>（不抛异常）。
@@ -30,14 +40,41 @@ internal static class WindowPositionStore
         left = 0;
         top = 0;
 
+        if (TryLoadFrom(FilePath, out left, out top))
+        {
+            return true;
+        }
+
+        // 只有「新文件不存在」才回退旧路径；新文件存在但损坏时按「没有可用位置」处理，
+        // 避免用旧文件覆盖用户改名后已经产生的新文件。
+        if (File.Exists(FilePath))
+        {
+            return false;
+        }
+
+        if (!TryLoadFrom(LegacyFilePath, out left, out top))
+        {
+            return false;
+        }
+
+        // 一次性迁移：旧位置写入新路径（不删旧文件）；写失败不影响本次恢复结果。
+        Save(left, top);
+        return true;
+    }
+
+    private static bool TryLoadFrom(string path, out double left, out double top)
+    {
+        left = 0;
+        top = 0;
+
         try
         {
-            if (!File.Exists(FilePath))
+            if (!File.Exists(path))
             {
                 return false;
             }
 
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(FilePath));
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
             JsonElement root = document.RootElement;
 
             if (root.ValueKind != JsonValueKind.Object ||
