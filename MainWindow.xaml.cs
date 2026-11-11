@@ -1,20 +1,36 @@
 ﻿using System.ComponentModel;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace AssistantTouch;
 
 /// <summary>
 /// 桌面悬浮球主窗口：无边框、置顶、半透明、可鼠标拖拽，并记忆上次位置。
-/// 当前为骨架，点击/双击等业务逻辑后续接入。
+/// 左键单击打开菜单、双击回到主屏中央；拖拽由本类手动实现（4px 阈值）。
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>超过该设备像素位移才判定为拖拽，否则视为单击。</summary>
+    private const double DragThresholdPixels = 4;
+
+    private readonly DispatcherTimer _singleClickTimer;
+
+    private Point _pointerDownScreen;
+    private Point _windowAtPointerDown;
+    private bool _isPointerDown;
+    private bool _isDragging;
+
     public MainWindow()
     {
         InitializeComponent();
+
+        _singleClickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        _singleClickTimer.Tick += OnSingleClickTimerTick;
+
         RestoreSavedPosition();
     }
 
@@ -41,7 +57,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 拖拽结束后把窗口完整钳进最近显示器工作区，避免把球拖到屏幕外后找不回来。
+    /// 拖拽过程中/结束后把窗口完整钳进最近显示器工作区，避免把球拖到屏幕外后找不回来。
     /// </summary>
     private void ClampBallToNearestMonitor()
     {
@@ -79,55 +95,139 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 按住左键进入系统原生拖拽循环，可把悬浮球拖到屏幕任意位置。
+    /// 左键按下：第二次点击（ClickCount == 2）直接执行双击动作；否则记录起点并准备手动拖拽。
     /// </summary>
     /// <remarks>
-    /// 拖拽结束（<c>DragMove()</c> 返回）先把球钳进最近显示器工作区（拖到屏幕边缘/外面松手也不会丢），
-    /// 再保存新位置：这样即使进程随后被强杀，下次启动也能回到拖到的地方。
-    /// 冲突预警：DragMove() 会独占鼠标并阻塞本次按压的后续事件，因此日后再加入
-    /// “单击打开面板 / 双击”时不能与 DragMove 直接并存。届时应改为手动记录按下
-    /// 坐标与位移阈值（例如 4px）：超过阈值才移动窗口，未超过则判定为单击；
-    /// 否则单击会被吞掉，或被误判为拖拽。
+    /// 不再使用 <c>DragMove()</c>：它独占鼠标并吞掉后续点击，无法与单击/双击共存。
+    /// 这里手动记录按下时的屏幕坐标与窗口位置，由 <see cref="OnMouseMove"/> 按位移阈值决定是否拖动。
     /// </remarks>
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        try
+        if (e.ClickCount == 2)
         {
-            DragMove();
+            _singleClickTimer.Stop();
+            ResetToPrimaryCenter();
+            e.Handled = true;
+            return;
+        }
+
+        _singleClickTimer.Stop();
+        _isPointerDown = true;
+        _isDragging = false;
+        _pointerDownScreen = PointToScreen(e.GetPosition(this));
+        _windowAtPointerDown = new Point(Left, Top);
+        CaptureMouse();
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 左键拖动：位移超过 4 设备像素才进入拖拽；拖动中按 DPI 折算成 DIU 并持续钳制。
+    /// </summary>
+    /// <remarks>
+    /// 位置始终由「按下时的窗口位置 + 累计位移」计算（绝对量），
+    /// 因此拖到边缘被钳住后，反向移动会立刻跟手，不会出现「粘滞/回弹」。
+    /// </remarks>
+    private void OnMouseMove(object sender, MouseEventArgs e)
+    {
+        if (!_isPointerDown || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        Point currentScreen = PointToScreen(e.GetPosition(this));
+        Vector delta = currentScreen - _pointerDownScreen;
+
+        if (!_isDragging &&
+            (Math.Abs(delta.X) > DragThresholdPixels || Math.Abs(delta.Y) > DragThresholdPixels))
+        {
+            _isDragging = true;
+        }
+
+        if (_isDragging)
+        {
+            DpiScale dpi = VisualTreeHelper.GetDpi(this);
+            Left = _windowAtPointerDown.X + delta.X / dpi.DpiScaleX;
+            Top = _windowAtPointerDown.Y + delta.Y / dpi.DpiScaleY;
+            ClampBallToNearestMonitor();
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 左键抬起：拖拽过则钳制并保存；没拖拽则延时 250ms 视为单击（打开菜单）。
+    /// </summary>
+    private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (!_isPointerDown)
+        {
+            return;
+        }
+
+        bool wasDragging = _isDragging;
+        _isPointerDown = false;
+        _isDragging = false;
+
+        if (IsMouseCaptured)
+        {
+            ReleaseMouseCapture();
+        }
+
+        if (wasDragging)
+        {
             ClampBallToNearestMonitor();
             WindowPositionStore.Save(Left, Top);
         }
-        catch (InvalidOperationException)
+        else
         {
-            // 鼠标键已提前释放、或窗口状态不满足拖拽前提时 DragMove 会抛异常；
-            // 忽略即可，不能因此让悬浮球崩溃。
+            _singleClickTimer.Start();
+        }
+
+        e.Handled = true;
+    }
+
+    protected override void OnLostMouseCapture(MouseEventArgs e)
+    {
+        _isPointerDown = false;
+        _isDragging = false;
+        base.OnLostMouseCapture(e);
+    }
+
+    /// <summary>单击延时到点：在球下方打开同一个右键菜单。</summary>
+    private void OnSingleClickTimerTick(object? sender, EventArgs e)
+    {
+        _singleClickTimer.Stop();
+
+        if (RootGrid.ContextMenu is ContextMenu menu)
+        {
+            menu.PlacementTarget = this;
+            menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            menu.IsOpen = true;
         }
     }
 
     /// <summary>
-    /// 右键菜单「重置位置」：把悬浮球移回主屏工作区中央，并立即落盘。
+    /// 把悬浮球移回主屏工作区中央并立即落盘；菜单「重置位置」与双击共用。
     /// </summary>
-    /// <remarks>
-    /// 用 <c>SystemParameters.WorkArea</c>（主屏工作区，已排除任务栏），
-    /// 与「首次运行居中」的观感一致；重置后立刻写文件，重启仍落在中央。
-    /// </remarks>
-    private void OnResetPositionClick(object sender, RoutedEventArgs e)
+    internal void ResetToPrimaryCenter()
     {
         Rect workArea = SystemParameters.WorkArea;
         Left = workArea.Left + (workArea.Width - Width) / 2;
         Top = workArea.Top + (workArea.Height - Height) / 2;
+        ClampBallToNearestMonitor();
         WindowPositionStore.Save(Left, Top);
     }
 
+    /// <summary>右键菜单「重置位置」。</summary>
+    private void OnResetPositionClick(object sender, RoutedEventArgs e)
+    {
+        ResetToPrimaryCenter();
+    }
+
     /// <summary>
-    /// 右键菜单「关于」：显示名称、构建版本与仓库地址。
+    /// 显示「关于」对话框；右键菜单与托盘菜单共用。
     /// </summary>
-    /// <remarks>
-    /// 弹窗必须带 owner（this）：窗口是 Topmost + 无边框，无 owner 的弹窗可能被压在球后面。
-    /// 版本优先取带构建戳的 <see cref="AssemblyInformationalVersionAttribute"/>，
-    /// 便于用户报障时定位具体 commit；取不到再回落程序集版本。
-    /// </remarks>
-    private void OnAboutClick(object sender, RoutedEventArgs e)
+    internal void ShowAboutDialog()
     {
         string version = GetDisplayVersion();
         MessageBox.Show(
@@ -136,6 +236,41 @@ public partial class MainWindow : Window
             "关于",
             MessageBoxButton.OK,
             MessageBoxImage.Information);
+    }
+
+    /// <summary>右键菜单「关于」。</summary>
+    private void OnAboutClick(object sender, RoutedEventArgs e)
+    {
+        ShowAboutDialog();
+    }
+
+    /// <summary>
+    /// 请求退出：弹确认框（默认「否」），只有选「是」才正常关闭。右键菜单与托盘菜单共用。
+    /// </summary>
+    /// <remarks>
+    /// 选「否」不做任何事，保持原状；Yes/No 对话框没有取消按钮，Esc 与标题栏关闭均不可用（rev-02 实测）。
+    /// 退出走 WPF 正常关闭；不得用 Environment.Exit / Process.Kill 强杀。
+    /// </remarks>
+    internal void RequestExit()
+    {
+        MessageBoxResult result = MessageBox.Show(
+            this,
+            "退出 AssistantTouch？",
+            "AssistantTouch",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            Application.Current.Shutdown();
+        }
+    }
+
+    /// <summary>右键菜单「退出」。</summary>
+    private void OnExitClick(object sender, RoutedEventArgs e)
+    {
+        RequestExit();
     }
 
     /// <summary>
@@ -151,29 +286,5 @@ public partial class MainWindow : Window
         }
 
         return assembly.GetName().Version?.ToString() ?? "未知";
-    }
-
-    /// <summary>
-    /// 右键菜单「退出」：弹确认框，只有选「是」才退出程序。
-    /// </summary>
-    /// <remarks>
-    /// 默认按钮为「否」（rev-02 的 P3）：误按回车不会退出，必须明确选「是」。
-    /// 选「否」不做任何事，保持原状；Yes/No 对话框没有取消按钮，Esc 与标题栏关闭均不可用（rev-02 实测）。
-    /// 退出走 WPF 正常关闭；不得用 Environment.Exit / Process.Kill 强杀。
-    /// </remarks>
-    private void OnExitClick(object sender, RoutedEventArgs e)
-    {
-        MessageBoxResult result = MessageBox.Show(
-            this,
-            "退出 AssistantTouch？",
-            "AssistantTouch",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question,
-            MessageBoxResult.No);
-
-        if (result == MessageBoxResult.Yes)
-        {
-            Application.Current.Shutdown();
-        }
     }
 }

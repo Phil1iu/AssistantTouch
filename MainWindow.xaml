@@ -17,12 +17,15 @@
         Cursor="SizeAll">
 
     <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
-    <Grid Background="Transparent"
-          MouseLeftButtonDown="OnMouseLeftButtonDown">
+    <Grid x:Name="RootGrid"
+          Background="Transparent"
+          MouseLeftButtonDown="OnMouseLeftButtonDown"
+          MouseMove="OnMouseMove"
+          MouseLeftButtonUp="OnMouseLeftButtonUp">
 
         <!-- 右键菜单：重置位置 / 关于 / 分隔线 / 退出。
-             菜单由 ContextMenuService 在右键抬起时自动弹出，因此不再挂 MouseRightButtonUp 处理器
-             （sprint-02 的「右键直接弹确认框」路径已移除），避免与菜单双触发。 -->
+             右键由 ContextMenuService 自动弹出；左键单击（无拖动）也会在 250ms 后打开同一个菜单。
+             拖拽改为手动实现（4px 阈值），因此不再使用 DragMove()。 -->
         <Grid.ContextMenu>
             <ContextMenu>
                 <MenuItem Header="重置位置" Click="OnResetPositionClick" />
