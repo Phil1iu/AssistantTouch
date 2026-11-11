@@ -18,8 +18,19 @@
 
     <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
     <Grid Background="Transparent"
-          MouseLeftButtonDown="OnMouseLeftButtonDown"
-          MouseRightButtonUp="OnMouseRightButtonUp">
+          MouseLeftButtonDown="OnMouseLeftButtonDown">
+
+        <!-- 右键菜单：重置位置 / 关于 / 分隔线 / 退出。
+             菜单由 ContextMenuService 在右键抬起时自动弹出，因此不再挂 MouseRightButtonUp 处理器
+             （sprint-02 的「右键直接弹确认框」路径已移除），避免与菜单双触发。 -->
+        <Grid.ContextMenu>
+            <ContextMenu>
+                <MenuItem Header="重置位置" Click="OnResetPositionClick" />
+                <MenuItem Header="关于" Click="OnAboutClick" />
+                <Separator />
+                <MenuItem Header="退出" Click="OnExitClick" />
+            </ContextMenu>
+        </Grid.ContextMenu>
 
         <!-- Margin=2：给 2px 描边留出内侧空间，避免圆边描边被窗口边界裁掉一半 -->
         <Ellipse Margin="2">

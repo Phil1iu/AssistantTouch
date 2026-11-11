@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Reflection;
 using System.Windows;
 using System.Windows.Input;
 
@@ -81,26 +82,54 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 右键单击悬浮球：弹确认框，只有选「是」才退出程序。
+    /// 右键菜单「重置位置」：把悬浮球移回主屏工作区中央，并立即落盘。
     /// </summary>
     /// <remarks>
-    /// 选右键而不是双击：DragMove() 会独占本次左键按压的后续事件（见上），
-    /// 双击要先把手动拖拽改成位移阈值判定才能与单击区分；右键与左键拖拽天然互不干扰。
+    /// 用 <c>SystemParameters.WorkArea</c>（主屏工作区，已排除任务栏），
+    /// 与「首次运行居中」的观感一致；重置后立刻写文件，重启仍落在中央。
+    /// </remarks>
+    private void OnResetPositionClick(object sender, RoutedEventArgs e)
+    {
+        Rect workArea = SystemParameters.WorkArea;
+        Left = workArea.Left + (workArea.Width - Width) / 2;
+        Top = workArea.Top + (workArea.Height - Height) / 2;
+        WindowPositionStore.Save(Left, Top);
+    }
+
+    /// <summary>
+    /// 右键菜单「关于」：显示名称、程序集版本与仓库地址。
+    /// </summary>
+    /// <remarks>
     /// 弹窗必须带 owner（this）：窗口是 Topmost + 无边框，无 owner 的弹窗可能被压在球后面。
-    /// 「否」或直接关闭弹窗都不做任何事，保持原状。
+    /// </remarks>
+    private void OnAboutClick(object sender, RoutedEventArgs e)
+    {
+        Version? version = Assembly.GetExecutingAssembly().GetName().Version;
+        MessageBox.Show(
+            this,
+            $"AssistiveTouch\n版本 {version?.ToString() ?? "未知"}\nhttps://github.com/Phil1iu/AssistiveTouch",
+            "关于",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
+    }
+
+    /// <summary>
+    /// 右键菜单「退出」：弹确认框，只有选「是」才退出程序。
+    /// </summary>
+    /// <remarks>
+    /// 默认按钮为「否」（rev-02 的 P3）：误按回车不会退出，必须明确选「是」。
+    /// 选「否」不做任何事，保持原状；Yes/No 对话框没有取消按钮，Esc 与标题栏关闭均不可用（rev-02 实测）。
     /// 退出走 WPF 正常关闭；不得用 Environment.Exit / Process.Kill 强杀。
     /// </remarks>
-    private void OnMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    private void OnExitClick(object sender, RoutedEventArgs e)
     {
-        // 本次右键按压到此处理完毕，不再向冒泡链上游传递。
-        e.Handled = true;
-
         MessageBoxResult result = MessageBox.Show(
             this,
             "退出 AssistiveTouch？",
             "AssistiveTouch",
             MessageBoxButton.YesNo,
-            MessageBoxImage.Question);
+            MessageBoxImage.Question,
+            MessageBoxResult.No);
 
         if (result == MessageBoxResult.Yes)
         {
