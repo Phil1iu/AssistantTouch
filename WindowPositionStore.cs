@@ -74,7 +74,34 @@ internal static class WindowPositionStore
                 return false;
             }
 
-            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+            return TryParse(File.ReadAllText(path), out left, out top);
+        }
+        catch (Exception)
+        {
+            // 无读权限、并发写坏等，都按「没有保存过位置」处理。
+            left = 0;
+            top = 0;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 解析位置 JSON（纯函数，便于单测）：合法返回 <c>true</c>；
+    /// 空串 / 损坏 / 缺字段 / 非数字 / NaN / Infinity / 非对象根 均返回 <c>false</c>，不抛异常。
+    /// </summary>
+    internal static bool TryParse(string? json, out double left, out double top)
+    {
+        left = 0;
+        top = 0;
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(json);
             JsonElement root = document.RootElement;
 
             if (root.ValueKind != JsonValueKind.Object ||
@@ -96,7 +123,7 @@ internal static class WindowPositionStore
         }
         catch (Exception)
         {
-            // 损坏的 JSON、无读权限、并发写坏等，都按「没有保存过位置」处理。
+            // 损坏的 JSON 一律按「没有保存过位置」处理。
             return false;
         }
     }

@@ -115,9 +115,7 @@ public partial class MainWindow : Window
             desiredTop + Height / 2,
             dpi);
 
-        double left = Math.Max(workArea.Left, Math.Min(workArea.Right - Width, desiredLeft));
-        double top = Math.Max(workArea.Top, Math.Min(workArea.Bottom - Height, desiredTop));
-        return new Point(left, top);
+        return WindowClamp.Clamp(desiredLeft, desiredTop, Width, Height, workArea);
     }
 
     /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
