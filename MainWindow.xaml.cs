@@ -34,6 +34,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _singleClickTimer;
 
     private Point _pointerDownScreen;
+    private Point _lastPointerScreen;
     private Point _windowAtPointerDown;
     private bool _isPointerDown;
     private bool _isDragging;
@@ -128,19 +129,26 @@ public partial class MainWindow : Window
     /// 把窗口左上角钳进「窗口中心点所在（或最近）显示器」的工作区，返回钳制后的左上角。
     /// </summary>
     /// <remarks>
-    /// 用窗口中心点判定归属显示器：跨屏拖动时按球心计；中心落在所有显示器之外时，
-    /// Win32 <c>MONITOR_DEFAULTTONEAREST</c> 取最近显示器。
-    /// 若工作区比窗口还小（极端情况），上界小于下界，结果落在工作区左上角。
+    /// 先把当前窗口 DIU 换算成物理像素，用物理中心点选目标显示器（<c>MonitorFromPoint</c> 用物理像素）；
+    /// 目标工作区按<strong>目标显示器 DPI</strong> 折算，期望位置也换算到目标 DPI 后再钳制。
+    /// 100% DPI 下与旧实现完全一致；混合 DPI 未实机验证。
     /// </remarks>
     private Point ClampToNearestMonitor(double desiredLeft, double desiredTop)
     {
-        DpiScale dpi = VisualTreeHelper.GetDpi(this);
-        Rect workArea = MonitorLayout.GetWorkAreaAt(
-            desiredLeft + Width / 2,
-            desiredTop + Height / 2,
-            dpi);
+        DpiScale currentDpi = VisualTreeHelper.GetDpi(this);
 
-        return WindowClamp.Clamp(desiredLeft, desiredTop, Width, Height, workArea);
+        double physicalLeft = desiredLeft * currentDpi.DpiScaleX;
+        double physicalTop = desiredTop * currentDpi.DpiScaleY;
+        double physicalCenterX = physicalLeft + Width * currentDpi.DpiScaleX / 2;
+        double physicalCenterY = physicalTop + Height * currentDpi.DpiScaleY / 2;
+
+        MonitorLayout.MonitorTarget target =
+            MonitorLayout.GetNearestTarget(physicalCenterX, physicalCenterY, currentDpi);
+
+        double targetLeft = physicalLeft / target.Dpi.DpiScaleX;
+        double targetTop = physicalTop / target.Dpi.DpiScaleY;
+
+        return WindowClamp.Clamp(targetLeft, targetTop, Width, Height, target.WorkArea);
     }
 
     /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
@@ -169,7 +177,19 @@ public partial class MainWindow : Window
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
         base.OnDpiChanged(oldDpi, newDpi);
-        ClampBallToNearestMonitorAndSaveIfMoved();
+
+        if (_isPointerDown)
+        {
+            // 拖拽中跨 DPI：按目标显示器工作区钳制，并以当前指针与新 DPI 下的窗口位置为新基准，
+            // 避免继续用旧 DPI 折算累计位移导致跳变。
+            ClampBallToNearestMonitor();
+            _pointerDownScreen = _lastPointerScreen;
+            _windowAtPointerDown = new Point(Left, Top);
+        }
+        else
+        {
+            ClampBallToNearestMonitorAndSaveIfMoved();
+        }
     }
 
     /// <summary>
@@ -181,6 +201,7 @@ public partial class MainWindow : Window
         _isPointerDown = true;
         _isDragging = false;
         _pointerDownScreen = screenPoint;
+        _lastPointerScreen = screenPoint;
         _windowAtPointerDown = new Point(Left, Top);
     }
 
@@ -198,6 +219,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _lastPointerScreen = currentScreen;
         Vector delta = currentScreen - _pointerDownScreen;
 
         if (!_isDragging &&

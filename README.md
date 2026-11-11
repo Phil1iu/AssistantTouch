@@ -62,7 +62,7 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained fals
 - **内存验收口径冲突**：本机空 WPF 模板空闲即 227.9MB（工作集），本项目 207~231MB，
   冲刺账本「空闲内存 < 50MB」在 C#/WPF + 本机环境下不可达。
   取证与建议见 [`artifacts/memory-probe.md`](artifacts/memory-probe.md)。
-- **PerMonitorV2（高 DPI）**：`app.manifest` 声明 PerMonitorV2，旧系统回落 `true/PM`；保存的位置按窗口所在显示器的 DPI 折算；跨显示器或 DPI 变化时通过 `DpiChanged` 自动重新钳制并保存，保证 72 DIU 的球完整可见。混合 DPI 下的实际表现**未实机验证**（当前环境为 100%）。
+- **PerMonitorV2（高 DPI）**：`app.manifest` 声明 PerMonitorV2，旧系统回落 `true/PM`；保存的位置按窗口所在显示器的 DPI 折算；钳制时按**目标显示器 DPI**（`GetDpiForMonitor`）折算工作区；跨显示器/DPI 变化通过 `DpiChanged` 重新钳制，拖拽中会重置指针与窗口基准避免跳变。混合 DPI 下的实际表现**未实机验证**（当前环境为 100%）。
 - **单实例范围**：`Global\AssistantTouch.SingleInstance.<SID>` 按 Windows 用户隔离（同一用户跨会话互斥、不同用户各一个）；创建失败回退 `Local\...<SID>`；都失败则按「已有实例」退出。未做不同用户之间的互斥。
 
 ## 后续
