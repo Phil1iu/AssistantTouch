@@ -30,6 +30,7 @@ public partial class MainWindow : Window
 
         _singleClickTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _singleClickTimer.Tick += OnSingleClickTimerTick;
+        Loaded += OnWindowLoaded;
 
         RestoreSavedPosition();
     }
@@ -92,6 +93,29 @@ public partial class MainWindow : Window
     {
         WindowPositionStore.Save(Left, Top);
         base.OnClosing(e);
+    }
+
+    /// <summary>
+    /// 首次显示后，用最终（可能是目标显示器）的 DPI 再钳制一次并保存。
+    /// </summary>
+    /// <remarks>
+    /// 构造期恢复位置时窗口还没有 PresentationSource，PerMonitorV2 下的 DPI 可能还是系统值；
+    /// 显示后再钳制一次，避免在混合 DPI 布局里把球放到目标显示器之外。
+    /// </remarks>
+    private void OnWindowLoaded(object sender, RoutedEventArgs e)
+    {
+        ClampBallToNearestMonitor();
+        WindowPositionStore.Save(Left, Top);
+    }
+
+    /// <summary>
+    /// 跨显示器导致 DPI 变化：按新 DPI 重新计算所在显示器工作区并钳制，保证 72 DIU 的球完整可见。
+    /// </summary>
+    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
+    {
+        base.OnDpiChanged(oldDpi, newDpi);
+        ClampBallToNearestMonitor();
+        WindowPositionStore.Save(Left, Top);
     }
 
     /// <summary>

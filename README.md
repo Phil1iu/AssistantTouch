@@ -49,7 +49,7 @@ dotnet build -c Release
 - **内存验收口径冲突**：本机空 WPF 模板空闲即 227.9MB（工作集），本项目 207~231MB，
   冲刺账本「空闲内存 < 50MB」在 C#/WPF + 本机环境下不可达。
   取证与建议见 [`artifacts/memory-probe.md`](artifacts/memory-probe.md)。
-- **高 DPI 未适配**：保存的是 WPF DIU；进程为 System DPI Aware（非 PerMonitorV2），125%/150% 缩放、混合 DPI 多显示器下的换算与迁移未验证。
+- **PerMonitorV2（高 DPI）**：`app.manifest` 声明 PerMonitorV2，旧系统回落 `true/PM`；保存的位置按窗口所在显示器的 DPI 折算；跨显示器或 DPI 变化时通过 `DpiChanged` 自动重新钳制并保存，保证 72 DIU 的球完整可见。混合 DPI 下的实际表现**未实机验证**（当前环境为 100%）。
 - **单实例范围**：互斥量 `Local\AssistantTouch.SingleInstance` 按登录会话隔离——同一会话第二次启动直接退出；不同用户会话各可运行一个实例（如需跨会话互斥，改用 `Global\` 并处理多用户权限）。
 
 ## 后续
