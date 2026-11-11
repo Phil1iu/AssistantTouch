@@ -18,7 +18,8 @@
 
     <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
     <Grid Background="Transparent"
-          MouseLeftButtonDown="OnMouseLeftButtonDown">
+          MouseLeftButtonDown="OnMouseLeftButtonDown"
+          MouseRightButtonUp="OnMouseRightButtonUp">
 
         <!-- Margin=2：给 2px 描边留出内侧空间，避免圆边描边被窗口边界裁掉一半 -->
         <Ellipse Margin="2">

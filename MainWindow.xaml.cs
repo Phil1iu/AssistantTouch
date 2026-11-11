@@ -35,4 +35,32 @@ public partial class MainWindow : Window
             // 忽略即可，不能因此让悬浮球崩溃。
         }
     }
+
+    /// <summary>
+    /// 右键单击悬浮球：弹确认框，只有选「是」才退出程序。
+    /// </summary>
+    /// <remarks>
+    /// 选右键而不是双击：DragMove() 会独占本次左键按压的后续事件（见上），
+    /// 双击要先把手动拖拽改成位移阈值判定才能与单击区分；右键与左键拖拽天然互不干扰。
+    /// 弹窗必须带 owner（this）：窗口是 Topmost + 无边框，无 owner 的弹窗可能被压在球后面。
+    /// 「否」或直接关闭弹窗都不做任何事，保持原状。
+    /// 退出走 WPF 正常关闭；不得用 Environment.Exit / Process.Kill 强杀。
+    /// </remarks>
+    private void OnMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        // 本次右键按压到此处理完毕，不再向冒泡链上游传递。
+        e.Handled = true;
+
+        MessageBoxResult result = MessageBox.Show(
+            this,
+            "退出 AssistiveTouch？",
+            "AssistiveTouch",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result == MessageBoxResult.Yes)
+        {
+            Application.Current.Shutdown();
+        }
+    }
 }
