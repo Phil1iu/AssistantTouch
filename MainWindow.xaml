@@ -32,19 +32,23 @@
             </ContextMenu>
         </Grid.ContextMenu>
 
-        <!-- Margin=2：给 2px 描边留出内侧空间，避免圆边描边被窗口边界裁掉一半 -->
+        <!-- Margin=2 保持不变：球体直径维持 68px（72px 窗口内留 2px 边），本轮不改布局/尺寸。
+             Issue #1 风格 B：纯白极简 + 1px 细灰渐变环，删除投影效果与 2px 深色描边。 -->
         <Ellipse Margin="2">
-            <Ellipse.Effect>
-                <DropShadowEffect BlurRadius="16" ShadowDepth="1" Opacity="0.5" Color="Black" />
-            </Ellipse.Effect>
             <Ellipse.Style>
                 <Style TargetType="Ellipse">
-                    <!-- 默认：半透明白球 + 2px 深色描边。
-                         描边必须深色：白底上 #66FFFFFF 填充与背景对比仅约 8%（D2 实测 rgb(234,234,234) vs 255），
-                         靠不透明度加不回来，只能靠轮廓。填充保持半透明观感，不做成不透明。 -->
-                    <Setter Property="Fill" Value="#66FFFFFF" />
-                    <Setter Property="Stroke" Value="#99000000" />
-                    <Setter Property="StrokeThickness" Value="2" />
+                    <!-- 常态：近纯白填充（96% 白，保留轻微半透明观感）+ 1px 对角灰渐变环（深→浅）。
+                         环的深端用于白底可见性，浅端制造「细灰渐变」而不是生硬黑边。 -->
+                    <Setter Property="Fill" Value="#F5FFFFFF" />
+                    <Setter Property="StrokeThickness" Value="1" />
+                    <Setter Property="Stroke">
+                        <Setter.Value>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                <GradientStop Color="#73000000" Offset="0" />
+                                <GradientStop Color="#1F000000" Offset="1" />
+                            </LinearGradientBrush>
+                        </Setter.Value>
+                    </Setter>
                     <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
                     <Setter Property="RenderTransform">
                         <Setter.Value>
@@ -52,13 +56,20 @@
                         </Setter.Value>
                     </Setter>
                     <Style.Triggers>
-                        <!-- 悬停：填充略微提高不透明度，描边进一步加深（不能转白，否则白底又丢了轮廓） -->
+                        <!-- 悬停：填充到纯白，环整体加深一档；缩放改为 1.04，避免弹跳感。 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Fill" Value="#8CFFFFFF" />
-                            <Setter Property="Stroke" Value="#CC000000" />
+                            <Setter Property="Fill" Value="#FFFFFFFF" />
+                            <Setter Property="Stroke">
+                                <Setter.Value>
+                                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                                        <GradientStop Color="#A6000000" Offset="0" />
+                                        <GradientStop Color="#40000000" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Setter.Value>
+                            </Setter>
                             <Setter Property="RenderTransform">
                                 <Setter.Value>
-                                    <ScaleTransform ScaleX="1.06" ScaleY="1.06" />
+                                    <ScaleTransform ScaleX="1.04" ScaleY="1.04" />
                                 </Setter.Value>
                             </Setter>
                         </Trigger>
