@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 
@@ -9,12 +10,15 @@ namespace AssistantTouch;
 /// 托盘图标与托盘菜单：显示/隐藏球、重置位置、关于、退出；双击托盘图标切换显隐。
 /// </summary>
 /// <remarks>
-/// 图标运行时绘制（白色圆 + 1px 灰环，与悬浮球一致），用 <see cref="Bitmap.GetHicon"/> 转成 HICON；
-/// <see cref="Icon.FromHandle"/> 不拥有句柄，Dispose 时必须自己 <c>DestroyIcon</c>。
+/// 图标优先从程序集资源 <c>assets/app.ico</c> 加载（与 exe 的 ApplicationIcon 同一个文件，多尺寸）；
+/// 资源不可用时回退到运行时绘制（白色圆 + 1px 灰环）。回退图标用 <see cref="Bitmap.GetHicon"/>
+/// 生成 HICON，<see cref="Icon.FromHandle"/> 不拥有句柄，Dispose 时必须自己 <c>DestroyIcon</c>。
 /// 托盘菜单是 WinForms <see cref="ContextMenuStrip"/>，不参与 WPF 的浅色主题。
 /// </remarks>
 internal sealed class TrayIconController : IDisposable
 {
+    private const string IconResourceUri = "pack://application:,,,/assets/app.ico";
+
     private readonly MainWindow _window;
     private readonly NotifyIcon _notifyIcon;
     private readonly ContextMenuStrip _menu;
@@ -26,8 +30,7 @@ internal sealed class TrayIconController : IDisposable
     public TrayIconController(MainWindow window)
     {
         _window = window;
-        _iconHandle = CreateIconHandle();
-        _icon = Icon.FromHandle(_iconHandle);
+        (_icon, _iconHandle) = LoadIcon();
 
         _toggleItem = new ToolStripMenuItem("隐藏悬浮球");
         _toggleItem.Click += (_, _) => ToggleBall();
@@ -76,6 +79,29 @@ internal sealed class TrayIconController : IDisposable
     private void UpdateToggleText()
     {
         _toggleItem.Text = _window.IsVisible ? "隐藏悬浮球" : "显示悬浮球";
+    }
+
+    /// <summary>
+    /// 优先加载程序集内嵌的多尺寸图标；加载失败时回退到运行时绘制（返回需 DestroyIcon 的句柄）。
+    /// </summary>
+    private static (Icon Icon, IntPtr Handle) LoadIcon()
+    {
+        try
+        {
+            var resource = System.Windows.Application.GetResourceStream(new Uri(IconResourceUri));
+            if (resource is not null)
+            {
+                using Stream stream = resource.Stream;
+                return (new Icon(stream), IntPtr.Zero);
+            }
+        }
+        catch (Exception)
+        {
+            // 资源缺失或损坏：回退到运行时绘制。
+        }
+
+        IntPtr handle = CreateIconHandle();
+        return (Icon.FromHandle(handle), handle);
     }
 
     private static IntPtr CreateIconHandle()

@@ -10,6 +10,7 @@
     <AssemblyName>AssistantTouch</AssemblyName>
     <RootNamespace>AssistantTouch</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>assets\app.ico</ApplicationIcon>
     <!-- WPF 入口的 DPI 感知由 app.manifest 声明 PerMonitorV2；WFAC010 是 WinForms
          分析器建议改用 ApplicationHighDpiMode 的提示，不适用于本 WPF 应用（WinForms 仅用于托盘）。 -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
@@ -22,6 +23,11 @@
          与 WPF 的 Point/Application/MouseEventArgs 等撞名；托盘代码里显式 using 即可。 -->
     <Using Remove="System.Drawing" />
     <Using Remove="System.Windows.Forms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 托盘直接从程序集资源里复用同一个 ico（ApplicationIcon 只影响 exe 图标）。 -->
+    <Resource Include="assets\app.ico" />
   </ItemGroup>
 
   <ItemGroup>
