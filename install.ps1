@@ -18,7 +18,7 @@ if (-not (Test-Path $exeSource)) {
 
 $running = Get-Process $appName -ErrorAction SilentlyContinue
 if ($running) {
-    Write-Warning "检测到 $appName 正在运行。请先从托盘菜单退出，再重新运行安装脚本。"
+    throw "检测到 $appName 正在运行（PID: $($running.Id -join ', ')）。请先从托盘菜单退出，再重新运行安装脚本。"
 }
 
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null

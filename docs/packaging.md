@@ -45,7 +45,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File install.ps1 -NoDesktopShortc
 - 桌面快捷方式：`%USERPROFILE%\Desktop\AssistantTouch.lnk`，图标来自 exe 内嵌 `assets/app.ico`。
 - 安装脚本**不写开机自启**；需要时启动应用后，在悬浮球菜单勾选「开机自启」
   （写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `AssistantTouch`）。
-- 安装前请先退出正在运行的应用（脚本会提示）。
+- 安装前请先退出正在运行的应用（检测到运行中的 `AssistantTouch` 进程时，脚本会**中止**并提示 PID）。
 
 ## 4. 卸载
 
@@ -62,7 +62,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -RemoveConfig
 3. 删除桌面快捷方式；
 4. 删除安装目录 `%LOCALAPPDATA%\Programs\AssistantTouch`；
 5. **默认保留**配置目录 `%LOCALAPPDATA%\AssistantTouch`（`window.json` 等），
-   需要清理时加 `-RemoveConfig`。
+   需要清理时加 `-RemoveConfig`（同时清理旧版本的 `%LOCALAPPDATA%\AssistiveTouch`）。
 
 ## 5. 运行时要求
 
@@ -77,8 +77,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1 -RemoveConfig
 - 拿到证书后的签名命令模板：
 
 ```powershell
-signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 ^
-  /f <证书.pfx> /p <证书密码> AssistantTouch.exe
+signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f <证书.pfx> /p <证书密码> AssistantTouch.exe
 ```
 
 > 状态：**阻塞（无证书）**。签名后再重新打 zip。

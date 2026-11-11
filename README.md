@@ -30,7 +30,7 @@ Windows 桌面**极简白色悬浮球**（骨架阶段）。
 - **托盘图标**（任务栏通知区）：白色圆球图标；双击切换悬浮球显示/隐藏
   - 托盘菜单：显示/隐藏悬浮球、重置位置、关于、退出
 - **开机自启**：右键菜单「开机自启」可勾选/取消；写入 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`，值名 `AssistantTouch`，值为带引号的 exe 完整路径；只影响当前用户，不碰 HKLM
-- **单实例**：同一 Windows 用户（**跨登录会话**）只允许一个进程；互斥量 `Global\AssistantTouch.SingleInstance.<SID>`，权限不足时回退 `Local\AssistantTouch.SingleInstance.<SID>`；第二次启动直接退出，不创建窗口、不读写位置文件。不同用户可各运行一个实例。
+- **单实例**：同一 Windows 用户（**跨登录会话**）只允许一个进程；互斥量 `Global\AssistantTouch.SingleInstance.<SID>`，权限不足时回退 `Local\AssistantTouch.SingleInstance.<SID>`（回退时仅保证**同会话**单实例）；第二次启动直接退出，不创建窗口、不读写位置文件。不同用户可各运行一个实例。
 - **位置记忆**：拖到哪，下次启动就回到哪
   - 存储：`%LOCALAPPDATA%\AssistantTouch\window.json`，格式 `{"left": 924, "top": 480}`，单位 WPF DIU（不是物理像素）
   - 保存时机：拖拽结束、程序退出（临时文件名含进程 ID，写完再覆盖移动；写失败不影响运行）
@@ -63,7 +63,7 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained fals
   冲刺账本「空闲内存 < 50MB」在 C#/WPF + 本机环境下不可达。
   取证与建议见 [`artifacts/memory-probe.md`](artifacts/memory-probe.md)。
 - **PerMonitorV2（高 DPI）**：`app.manifest` 声明 PerMonitorV2，旧系统回落 `true/PM`；保存的位置按窗口所在显示器的 DPI 折算；钳制时按**目标显示器 DPI**（`GetDpiForMonitor`）折算工作区；跨显示器/DPI 变化通过 `DpiChanged` 重新钳制，拖拽中会重置指针与窗口基准避免跳变。混合 DPI 下的实际表现**未实机验证**（当前环境为 100%）。
-- **单实例范围**：`Global\AssistantTouch.SingleInstance.<SID>` 按 Windows 用户隔离（同一用户跨会话互斥、不同用户各一个）；创建失败回退 `Local\...<SID>`；都失败则按「已有实例」退出。未做不同用户之间的互斥。
+- **单实例范围**：`Global\AssistantTouch.SingleInstance.<SID>` 按 Windows 用户隔离（同一用户跨会话互斥、不同用户各一个）；创建失败回退 `Local\...<SID>`，**此时只保证同一登录会话内的单实例**（跨会话不再互斥）；都失败则按「已有实例」退出。未做不同用户之间的互斥。
 
 ## 后续
 - 单击/双击交互接入时需先处理与 `DragMove()` 的冲突（见 `MainWindow.xaml.cs` 注释）

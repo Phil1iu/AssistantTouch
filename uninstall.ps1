@@ -1,6 +1,6 @@
 ﻿# 卸载 AssistantTouch：停止进程、删除 HKCU Run 自启项、桌面快捷方式与安装目录。
 # 用法：powershell -NoProfile -ExecutionPolicy Bypass -File uninstall.ps1
-# 默认保留用户配置（%LOCALAPPDATA%\AssistantTouch）；加 -RemoveConfig 一并删除。
+# 默认保留用户配置（%LOCALAPPDATA%\AssistantTouch）；加 -RemoveConfig 一并删除（含旧版 %LOCALAPPDATA%\AssistiveTouch）。
 param(
     [switch]$RemoveConfig
 )
@@ -30,9 +30,12 @@ if (Test-Path $installDir) {
 }
 
 if ($RemoveConfig) {
-    if (Test-Path $configDir) {
-        Remove-Item -Path $configDir -Recurse -Force
-        Write-Host "已删除配置目录: $configDir"
+    $legacyConfigDir = Join-Path $env:LOCALAPPDATA "AssistiveTouch"
+    foreach ($dir in @($configDir, $legacyConfigDir)) {
+        if (Test-Path $dir) {
+            Remove-Item -Path $dir -Recurse -Force
+            Write-Host "已删除配置目录: $dir"
+        }
     }
 }
 else {

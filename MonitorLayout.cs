@@ -9,7 +9,8 @@ namespace AssistantTouch;
 /// </summary>
 /// <remarks>
 /// 单位：Win32 返回物理像素，统一按传入的 <see cref="DpiScale"/> 折算成 WPF DIU。
-/// 进程是 System DPI Aware（非 PerMonitorV2），100% 缩放下 px == DIU；混合 DPI 的多显示器未适配。
+/// 进程已声明 PerMonitorV2（app.manifest）：显示器工作区按目标显示器 DPI 折算；100% 缩放下 px == DIU，
+/// 混合 DPI 已按目标显示器 DPI 处理但未实机验证。
 /// 点落在任何显示器之外（双屏错位死区、显示器已拔）时，
 /// <c>MONITOR_DEFAULTTONEAREST</c> 会返回最近显示器。
 /// </remarks>
