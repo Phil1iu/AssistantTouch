@@ -19,6 +19,7 @@ Windows 桌面**极简白色悬浮球**（骨架阶段）。
   - **关于**：显示名称、构建版本（优先取带 `+<commit>` 戳的 InformationalVersion）与仓库地址
   - **退出**：弹确认框「退出 AssistantTouch？」，**默认按钮为「否」**（直接回车不退出），选「是」才退出
   - 退出走 WPF 正常关闭 `Application.Current.Shutdown()`，不需要再 `taskkill`
+- **单实例**：同一登录会话只允许一个进程；第二次启动直接退出，不创建窗口、不读写位置文件（命名互斥量 `Local\AssistantTouch.SingleInstance`）
 - **位置记忆**：拖到哪，下次启动就回到哪
   - 存储：`%LOCALAPPDATA%\AssistantTouch\window.json`，格式 `{"left": 924, "top": 480}`，单位 WPF DIU（不是物理像素）
   - 保存时机：拖拽结束、程序退出（临时文件名含进程 ID，写完再覆盖移动；写失败不影响运行）
@@ -42,7 +43,7 @@ dotnet build -c Release
   冲刺账本「空闲内存 < 50MB」在 C#/WPF + 本机环境下不可达。
   取证与建议见 [`artifacts/memory-probe.md`](artifacts/memory-probe.md)。
 - **高 DPI 未适配**：保存的是 WPF DIU；进程为 System DPI Aware（非 PerMonitorV2），125%/150% 缩放、混合 DPI 多显示器下的换算与迁移未验证。
-- **多实例位置文件**：临时文件已按进程 ID 区分；若同时运行多个实例，最后保存者覆盖位置（未做单实例互斥）。
+- **单实例范围**：互斥量 `Local\AssistantTouch.SingleInstance` 按登录会话隔离——同一会话第二次启动直接退出；不同用户会话各可运行一个实例（如需跨会话互斥，改用 `Global\` 并处理多用户权限）。
 
 ## 后续
 - 单击/双击交互接入时需先处理与 `DragMove()` 的冲突（见 `MainWindow.xaml.cs` 注释）
