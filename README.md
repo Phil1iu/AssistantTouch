@@ -43,6 +43,15 @@ dotnet build -c Release
 ./bin/Release/net8.0-windows/AssistantTouch.exe
 ```
 
+## 测试与打包
+```powershell
+dotnet test AssistantTouch.sln -c Release
+dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained false -o dist/publish/win-x64
+```
+
+- 打包、安装/卸载脚本、运行时要求与签名状态见 [`docs/packaging.md`](docs/packaging.md)
+  （当前**无代码签名证书**，签名列为阻塞项）。
+
 ## 位置文件
 - 路径：`%LOCALAPPDATA%\AssistantTouch\window.json`（首次拖动或正常退出后生成）
 - 内容：`{"left": <number>, "top": <number>}`，WPF DIU
