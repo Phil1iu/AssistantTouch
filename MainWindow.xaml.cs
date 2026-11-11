@@ -14,8 +14,15 @@ namespace AssistantTouch;
 /// </summary>
 public partial class MainWindow : Window
 {
-    /// <summary>超过该设备像素位移才判定为拖拽，否则视为单击。</summary>
+    /// <summary>超过该设备像素位移才判定为拖拽，否则视为单击/轻触。</summary>
     private const double DragThresholdPixels = 4;
+
+    private enum PointerSource
+    {
+        None,
+        Mouse,
+        Touch
+    }
 
     private readonly DispatcherTimer _singleClickTimer;
 
@@ -23,6 +30,10 @@ public partial class MainWindow : Window
     private Point _windowAtPointerDown;
     private bool _isPointerDown;
     private bool _isDragging;
+    private PointerSource _activeSource;
+    private int _activeTouchId = -1;
+    private bool _touchDoubleTapPending;
+    private bool _pendingTapWasTouch;
 
     public MainWindow()
     {
@@ -119,49 +130,31 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 左键按下：第二次点击（ClickCount == 2）直接执行双击动作；否则记录起点并准备手动拖拽。
+    /// 鼠标/触摸共用的按下处理：记录起点与窗口位置，标记当前输入源。
     /// </summary>
-    /// <remarks>
-    /// 不再使用 <c>DragMove()</c>：它独占鼠标并吞掉后续点击，无法与单击/双击共存。
-    /// 这里手动记录按下时的屏幕坐标与窗口位置，由 <see cref="OnMouseMove"/> 按位移阈值决定是否拖动。
-    /// </remarks>
-    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void BeginPointerInteraction(PointerSource source, Point screenPoint)
     {
-        if (e.ClickCount == 2)
-        {
-            _singleClickTimer.Stop();
-            ResetToPrimaryCenter();
-            e.Handled = true;
-            return;
-        }
-
-        _singleClickTimer.Stop();
+        _activeSource = source;
         _isPointerDown = true;
         _isDragging = false;
-        _pointerDownScreen = PointToScreen(e.GetPosition(this));
+        _pointerDownScreen = screenPoint;
         _windowAtPointerDown = new Point(Left, Top);
-
-        // 必须捕获到 Grid 而不是 Window：WPF 捕获后鼠标事件只路由到捕获元素，
-        // 处理器在 Grid 上，若捕获 Window，后续 MouseMove/MouseLeftButtonUp 不会到达 Grid。
-        RootGrid.CaptureMouse();
-        e.Handled = true;
     }
 
     /// <summary>
-    /// 左键拖动：位移超过 4 设备像素才进入拖拽；拖动中按 DPI 折算成 DIU 并持续钳制。
+    /// 鼠标/触摸共用的移动处理：位移超过 4 设备像素才进入拖拽，拖动中按 DPI 折算并连续钳制。
     /// </summary>
     /// <remarks>
     /// 位置始终由「按下时的窗口位置 + 累计位移」计算（绝对量），
     /// 因此拖到边缘被钳住后，反向移动会立刻跟手，不会出现「粘滞/回弹」。
     /// </remarks>
-    private void OnMouseMove(object sender, MouseEventArgs e)
+    private void UpdatePointerInteraction(Point currentScreen)
     {
-        if (!_isPointerDown || e.LeftButton != MouseButtonState.Pressed)
+        if (!_isPointerDown)
         {
             return;
         }
 
-        Point currentScreen = PointToScreen(e.GetPosition(this));
         Vector delta = currentScreen - _pointerDownScreen;
 
         if (!_isDragging &&
@@ -177,7 +170,67 @@ public partial class MainWindow : Window
             Top = _windowAtPointerDown.Y + delta.Y / dpi.DpiScaleY;
             ClampBallToNearestMonitor();
         }
+    }
 
+    /// <summary>结束一次鼠标/触摸交互，返回是否发生过拖拽。</summary>
+    private bool EndPointerInteraction()
+    {
+        bool wasDragging = _isDragging;
+        _isPointerDown = false;
+        _isDragging = false;
+        _activeSource = PointerSource.None;
+        _activeTouchId = -1;
+        return wasDragging;
+    }
+
+    /// <summary>拖拽结束后：钳制到最近显示器工作区并保存。</summary>
+    private void FinishDrag()
+    {
+        ClampBallToNearestMonitor();
+        WindowPositionStore.Save(Left, Top);
+    }
+
+    /// <summary>
+    /// 左键按下：第二次点击（ClickCount == 2）直接执行双击动作；否则记录起点并准备手动拖拽。
+    /// </summary>
+    /// <remarks>
+    /// 不再使用 <c>DragMove()</c>：它独占鼠标并吞掉后续点击，无法与单击/双击共存。
+    /// 触摸进行中时忽略触摸提升出来的兼容鼠标事件（由 <see cref="_activeSource"/> 区分）。
+    /// </remarks>
+    private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ClickCount == 2)
+        {
+            _singleClickTimer.Stop();
+            ResetToPrimaryCenter();
+            e.Handled = true;
+            return;
+        }
+
+        if (_activeSource != PointerSource.None)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        _singleClickTimer.Stop();
+        BeginPointerInteraction(PointerSource.Mouse, PointToScreen(e.GetPosition(this)));
+
+        // 必须捕获到 Grid 而不是 Window：WPF 捕获后鼠标事件只路由到捕获元素，
+        // 处理器在 Grid 上，若捕获 Window，后续 MouseMove/MouseLeftButtonUp 不会到达 Grid。
+        RootGrid.CaptureMouse();
+        e.Handled = true;
+    }
+
+    /// <summary>左键拖动（未按下左键时忽略）。</summary>
+    private void OnMouseMove(object sender, MouseEventArgs e)
+    {
+        if (_activeSource != PointerSource.Mouse || e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        UpdatePointerInteraction(PointToScreen(e.GetPosition(this)));
         e.Handled = true;
     }
 
@@ -186,14 +239,12 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_isPointerDown)
+        if (_activeSource != PointerSource.Mouse)
         {
             return;
         }
 
-        bool wasDragging = _isDragging;
-        _isPointerDown = false;
-        _isDragging = false;
+        bool wasDragging = EndPointerInteraction();
 
         if (RootGrid.IsMouseCaptured)
         {
@@ -202,11 +253,11 @@ public partial class MainWindow : Window
 
         if (wasDragging)
         {
-            ClampBallToNearestMonitor();
-            WindowPositionStore.Save(Left, Top);
+            FinishDrag();
         }
         else
         {
+            _pendingTapWasTouch = false;
             _singleClickTimer.Start();
         }
 
@@ -215,22 +266,110 @@ public partial class MainWindow : Window
 
     protected override void OnLostMouseCapture(MouseEventArgs e)
     {
-        _isPointerDown = false;
-        _isDragging = false;
+        if (_activeSource == PointerSource.Mouse)
+        {
+            _isPointerDown = false;
+            _isDragging = false;
+            _activeSource = PointerSource.None;
+        }
+
         base.OnLostMouseCapture(e);
     }
 
-    /// <summary>单击延时到点：在球下方打开同一个右键菜单。</summary>
-    private void OnSingleClickTimerTick(object? sender, EventArgs e)
+    /// <summary>
+    /// 触摸按下：只接受第一个触点，其余触点忽略；与鼠标共用同一套起点/阈值/钳制状态。
+    /// </summary>
+    private void OnTouchDown(object sender, TouchEventArgs e)
     {
-        _singleClickTimer.Stop();
+        if (_activeSource != PointerSource.None)
+        {
+            // 已有鼠标或触摸在驱动交互，忽略额外触点。
+            e.Handled = true;
+            return;
+        }
 
+        // 若上一次「触摸」轻触留下的 250ms 菜单计时器还未到点，这一次按下就是触摸双击。
+        if (_singleClickTimer.IsEnabled && _pendingTapWasTouch)
+        {
+            _singleClickTimer.Stop();
+            _touchDoubleTapPending = true;
+        }
+        else
+        {
+            _singleClickTimer.Stop();
+            _touchDoubleTapPending = false;
+        }
+
+        _activeTouchId = e.TouchDevice.Id;
+        BeginPointerInteraction(PointerSource.Touch, PointToScreen(e.GetTouchPoint(this).Position));
+        RootGrid.CaptureTouch(e.TouchDevice);
+        e.Handled = true;
+    }
+
+    /// <summary>触摸移动：只处理当前主触点。</summary>
+    private void OnTouchMove(object sender, TouchEventArgs e)
+    {
+        if (_activeSource != PointerSource.Touch || e.TouchDevice.Id != _activeTouchId)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        UpdatePointerInteraction(PointToScreen(e.GetTouchPoint(this).Position));
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 触摸抬起：拖拽过则钳制保存；轻触延时 250ms 打开菜单；双击则回到主屏中央。
+    /// </summary>
+    private void OnTouchUp(object sender, TouchEventArgs e)
+    {
+        if (_activeSource != PointerSource.Touch || e.TouchDevice.Id != _activeTouchId)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        bool wasDragging = EndPointerInteraction();
+        RootGrid.ReleaseTouchCapture(e.TouchDevice);
+
+        if (wasDragging)
+        {
+            FinishDrag();
+        }
+        else if (_touchDoubleTapPending)
+        {
+            // 触摸双击：回到主屏工作区中央并保存。
+            _touchDoubleTapPending = false;
+            ResetToPrimaryCenter();
+        }
+        else
+        {
+            // 轻触：与单击一致，250ms 后打开菜单（留出双击判定窗口）。
+            _pendingTapWasTouch = true;
+            _singleClickTimer.Start();
+        }
+
+        e.Handled = true;
+    }
+
+    /// <summary>在球下方打开右键菜单（鼠标单击延时到点、触摸轻触共用）。</summary>
+    private void OpenBallMenu()
+    {
         if (RootGrid.ContextMenu is ContextMenu menu)
         {
             menu.PlacementTarget = this;
             menu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
             menu.IsOpen = true;
         }
+    }
+
+    /// <summary>单击延时到点：在球下方打开同一个右键菜单。</summary>
+    private void OnSingleClickTimerTick(object? sender, EventArgs e)
+    {
+        _singleClickTimer.Stop();
+        _pendingTapWasTouch = false;
+        OpenBallMenu();
     }
 
     /// <summary>

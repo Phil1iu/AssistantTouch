@@ -99,7 +99,10 @@
           Background="Transparent"
           MouseLeftButtonDown="OnMouseLeftButtonDown"
           MouseMove="OnMouseMove"
-          MouseLeftButtonUp="OnMouseLeftButtonUp">
+          MouseLeftButtonUp="OnMouseLeftButtonUp"
+          TouchDown="OnTouchDown"
+          TouchMove="OnTouchMove"
+          TouchUp="OnTouchUp">
 
         <!-- 右键菜单：重置位置 / 关于 / 分隔线 / 退出。
              右键由 ContextMenuService 自动弹出；左键单击（无拖动）也会在 250ms 后打开同一个菜单。
