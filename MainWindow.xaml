@@ -92,40 +92,6 @@
                 </Setter.Value>
             </Setter>
         </Style>
-
-        <!-- 左键快捷操作面板的按钮：白底面板内的浅色按钮，悬停/按下用浅灰。 -->
-        <Style x:Key="QuickPanelButtonStyle" TargetType="Button">
-            <Setter Property="Foreground" Value="#1A1A1A" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="10,8" />
-            <Setter Property="Margin" Value="1" />
-            <Setter Property="MinWidth" Value="80" />
-            <Setter Property="HorizontalContentAlignment" Value="Center" />
-            <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="QuickButtonRoot"
-                                Background="{TemplateBinding Background}"
-                                CornerRadius="4"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="QuickButtonRoot" Property="Background" Value="#F2F2F2" />
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="QuickButtonRoot" Property="Background" Value="#E5E5E5" />
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
     </Window.Resources>
 
     <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
@@ -181,29 +147,5 @@
                 </Style>
             </Ellipse.Style>
         </Ellipse>
-
-        <!-- 左键单击（未拖动）打开的快捷操作面板：2×3、白底细边圆角，与右键菜单同风格。
-             StaysOpen=False：点面板外自动关闭；Esc 由窗口 PreviewKeyDown 处理。 -->
-        <Popup x:Name="QuickPanel"
-               PlacementTarget="{Binding ElementName=RootGrid}"
-               Placement="Custom"
-               StaysOpen="False"
-               AllowsTransparency="True"
-               PopupAnimation="Fade">
-            <Border Background="#FFFFFFFF"
-                    BorderBrush="#1F000000"
-                    BorderThickness="1"
-                    CornerRadius="6"
-                    Padding="4">
-                <UniformGrid Columns="3" Rows="2">
-                    <Button Content="显示桌面" Style="{StaticResource QuickPanelButtonStyle}" Click="OnShowDesktopClick" />
-                    <Button Content="截图" Style="{StaticResource QuickPanelButtonStyle}" Click="OnScreenshotClick" />
-                    <Button Content="任务管理器" Style="{StaticResource QuickPanelButtonStyle}" Click="OnTaskManagerClick" />
-                    <Button Content="设置" Style="{StaticResource QuickPanelButtonStyle}" Click="OnSettingsClick" />
-                    <Button Content="文件资源管理器" Style="{StaticResource QuickPanelButtonStyle}" Click="OnFileExplorerClick" />
-                    <Button Content="锁定电脑" Style="{StaticResource QuickPanelButtonStyle}" Click="OnLockComputerClick" />
-                </UniformGrid>
-            </Border>
-        </Popup>
     </Grid>
 </Window>

@@ -1,10 +1,7 @@
 ﻿using System.ComponentModel;
-using System.Diagnostics;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 
@@ -33,13 +30,12 @@ public partial class MainWindow : Window
     private bool _isDragging;
     private PointerSource _activeSource;
     private int _activeTouchId = -1;
+    private RadialMenuWindow? _radialMenu;
 
     public MainWindow()
     {
         InitializeComponent();
         Loaded += OnWindowLoaded;
-        PreviewKeyDown += OnWindowPreviewKeyDown;
-        QuickPanel.CustomPopupPlacementCallback = PlaceQuickPanel;
         RestoreSavedPosition();
     }
 
@@ -122,7 +118,12 @@ public partial class MainWindow : Window
     /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
     protected override void OnClosing(CancelEventArgs e)
     {
-        CloseQuickPanel();
+        if (_radialMenu is not null)
+        {
+            _radialMenu.Close();
+            _radialMenu = null;
+        }
+
         WindowPositionStore.Save(Left, Top);
         base.OnClosing(e);
     }
@@ -295,7 +296,7 @@ public partial class MainWindow : Window
         }
         else
         {
-            OpenQuickPanel();
+            OpenRadialMenu();
         }
 
         e.Handled = true;
@@ -376,140 +377,22 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    /// <summary>左键单击（未拖动）打开快捷操作面板。</summary>
-    private void OpenQuickPanel()
+    /// <summary>左键单击（未拖动，<4px）打开径向快捷菜单。</summary>
+    private void OpenRadialMenu()
     {
-        QuickPanel.PlacementTarget = RootGrid;
-        QuickPanel.IsOpen = true;
-    }
+        _radialMenu?.Close();
 
-    private void CloseQuickPanel()
-    {
-        if (QuickPanel.IsOpen)
+        Point ballCenter = PointToScreen(new Point(Width / 2, Height / 2));
+        var radial = new RadialMenuWindow(ShortcutDefinition.CreateDefaults(), ballCenter);
+        _radialMenu = radial;
+        radial.Closed += (_, _) =>
         {
-            QuickPanel.IsOpen = false;
-        }
-    }
-
-    /// <summary>Esc 关闭快捷操作面板（弹层不抢焦点，按键仍由球窗口接收）。</summary>
-    private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
-    {
-        if (QuickPanel.IsOpen && e.Key == Key.Escape)
-        {
-            CloseQuickPanel();
-            e.Handled = true;
-        }
-    }
-
-    /// <summary>
-    /// 面板优先放在球下方；下方放不下时尝试下方右对齐、上方、上方右对齐，
-    /// 由 WPF 选择落在工作区内且可见面积最大的位置。
-    /// </summary>
-    private static CustomPopupPlacement[] PlaceQuickPanel(Size popupSize, Size targetSize, Point offset)
-    {
-        const double gap = 8;
-
-        return new[]
-        {
-            new CustomPopupPlacement(new Point(0, targetSize.Height + gap), PopupPrimaryAxis.Horizontal),
-            new CustomPopupPlacement(new Point(-popupSize.Width + targetSize.Width, targetSize.Height + gap), PopupPrimaryAxis.Horizontal),
-            new CustomPopupPlacement(new Point(0, -popupSize.Height - gap), PopupPrimaryAxis.Horizontal),
-            new CustomPopupPlacement(new Point(-popupSize.Width + targetSize.Width, -popupSize.Height - gap), PopupPrimaryAxis.Horizontal),
+            if (ReferenceEquals(_radialMenu, radial))
+            {
+                _radialMenu = null;
+            }
         };
-    }
-
-    private const byte VkLeftWindows = 0x5B;
-    private const byte VkShift = 0x10;
-    private const byte VkControl = 0x11;
-    private const byte VkEscape = 0x1B;
-    private const byte VkD = 0x44;
-    private const byte VkS = 0x53;
-
-    [DllImport("user32.dll")]
-    private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, IntPtr extraInfo);
-
-    [DllImport("user32.dll", SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool LockWorkStation();
-
-    /// <summary>依次按下多个键后逆序释放（Win+D / Win+Shift+S / Ctrl+Shift+Esc）。</summary>
-    private static void SendKeyChord(params byte[] virtualKeys)
-    {
-        try
-        {
-            foreach (byte key in virtualKeys)
-            {
-                keybd_event(key, 0, 0, IntPtr.Zero);
-            }
-
-            for (int i = virtualKeys.Length - 1; i >= 0; i--)
-            {
-                keybd_event(virtualKeys[i], 0, 2, IntPtr.Zero);
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Quick action key chord failed: {ex.Message}");
-        }
-    }
-
-    private static void TryStart(string target)
-    {
-        try
-        {
-            Process.Start(new ProcessStartInfo(target) { UseShellExecute = true });
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"Quick action '{target}' failed: {ex.Message}");
-        }
-    }
-
-    private void OnShowDesktopClick(object sender, RoutedEventArgs e)
-    {
-        CloseQuickPanel();
-        SendKeyChord(VkLeftWindows, VkD);
-    }
-
-    private void OnScreenshotClick(object sender, RoutedEventArgs e)
-    {
-        CloseQuickPanel();
-        SendKeyChord(VkLeftWindows, VkShift, VkS);
-    }
-
-    private void OnTaskManagerClick(object sender, RoutedEventArgs e)
-    {
-        CloseQuickPanel();
-        SendKeyChord(VkControl, VkShift, VkEscape);
-    }
-
-    private void OnSettingsClick(object sender, RoutedEventArgs e)
-    {
-        CloseQuickPanel();
-        TryStart("ms-settings:");
-    }
-
-    private void OnFileExplorerClick(object sender, RoutedEventArgs e)
-    {
-        CloseQuickPanel();
-        TryStart("explorer.exe");
-    }
-
-    private void OnLockComputerClick(object sender, RoutedEventArgs e)
-    {
-        CloseQuickPanel();
-
-        try
-        {
-            if (!LockWorkStation())
-            {
-                Debug.WriteLine("LockWorkStation returned false.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.WriteLine($"LockWorkStation failed: {ex.Message}");
-        }
+        radial.Show();
     }
 
     /// <summary>

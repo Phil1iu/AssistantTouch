@@ -1,0 +1,18 @@
+<Window x:Class="AssistantTouch.RadialMenuWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AssistantTouch"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="#01000000"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        WindowStartupLocation="Manual"
+        Focusable="True">
+
+    <!-- 全屏透明通道：点非圆区域关闭；圆由代码添加到 Canvas。 -->
+    <Canvas x:Name="RingCanvas"
+            Background="#01000000"
+            MouseLeftButtonUp="OnCanvasMouseLeftButtonUp" />
+</Window>
