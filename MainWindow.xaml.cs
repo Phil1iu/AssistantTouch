@@ -36,6 +36,10 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+
+        // 磨砂玻璃雾面噪点：程序生成的静态 TileBrush（XAML 里通过 DynamicResource 引用）。
+        Resources["GlassNoiseBrush"] = FrostedGlassBrush.NoiseBrush;
+
         _shortcutStore = ShortcutStore.Load();
         Loaded += OnWindowLoaded;
         PreviewKeyDown += OnWindowPreviewKeyDown;

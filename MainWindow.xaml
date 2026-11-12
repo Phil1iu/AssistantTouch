@@ -117,35 +117,65 @@
             </ContextMenu>
         </Grid.ContextMenu>
 
-        <!-- Margin=2 保持不变：球体直径维持 68px（72px 窗口内留 2px 边），本轮不改布局/尺寸。
-             纯白极简 + 1px 纯色灰环（负责人 2026-11-12 现场纠偏：去掉渐变），删除投影与 2px 深色描边。 -->
-        <Ellipse Margin="2">
-            <Ellipse.Style>
-                <Style TargetType="Ellipse">
-                    <!-- 常态：近纯白填充（96% 白，保留轻微半透明观感）+ 1px 纯色 #80000000 环。 -->
-                    <Setter Property="Fill" Value="#F5FFFFFF" />
-                    <Setter Property="StrokeThickness" Value="1" />
-                    <Setter Property="Stroke" Value="#80000000" />
-                    <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
-                    <Setter Property="RenderTransform">
-                        <Setter.Value>
+        <!-- Margin=2 保持不变：球体直径维持 68px（72px 窗口内留 2px 边），本轮只改外观、不改布局/尺寸。
+             磨砂玻璃观感（纯 WPF，不用 DWM/SetWindowCompositionAttribute）：
+             半透明白底 + 细噪点雾面 + 左上柔和高光 + 内圈 1px 半透明反光 + 外圈 1px 淡灰轮廓。
+             噪点画刷由代码生成（FrostedGlassBrush），此处用 DynamicResource 引用；静态画刷，无每帧计算。 -->
+        <ContentControl x:Name="BallSurface" Margin="2" Focusable="False" IsTabStop="False">
+            <ContentControl.Template>
+                <ControlTemplate TargetType="ContentControl">
+                    <Grid x:Name="GlassRoot" RenderTransformOrigin="0.5,0.5">
+                        <Grid.RenderTransform>
                             <ScaleTransform ScaleX="1" ScaleY="1" />
-                        </Setter.Value>
-                    </Setter>
-                    <Style.Triggers>
-                        <!-- 悬停：填充到纯白，环加深为纯色 #A6000000；缩放 1.04。 -->
+                        </Grid.RenderTransform>
+
+                        <!-- 玻璃底：72% 白，能隐约透出背后的桌面内容。 -->
+                        <Ellipse x:Name="GlassBase"
+                                 Fill="#B8FFFFFF"
+                                 Stroke="#33000000"
+                                 StrokeThickness="1" />
+
+                        <!-- 雾面：程序生成的灰度细噪点，透明度 8%（悬停 10%）。 -->
+                        <Ellipse x:Name="GlassNoise"
+                                 Fill="{DynamicResource GlassNoiseBrush}"
+                                 Opacity="0.08"
+                                 IsHitTestVisible="False" />
+
+                        <!-- 高光：左上方柔和径向渐变，营造玻璃厚度。 -->
+                        <Ellipse x:Name="GlassGloss" IsHitTestVisible="False">
+                            <Ellipse.Fill>
+                                <RadialGradientBrush GradientOrigin="0.28,0.24"
+                                                     Center="0.32,0.28"
+                                                     RadiusX="0.78"
+                                                     RadiusY="0.78">
+                                    <GradientStop Color="#40FFFFFF" Offset="0" />
+                                    <GradientStop Color="#00FFFFFF" Offset="1" />
+                                </RadialGradientBrush>
+                            </Ellipse.Fill>
+                        </Ellipse>
+
+                        <!-- 内圈 1px 半透明白：玻璃边缘反光。 -->
+                        <Ellipse x:Name="GlassInnerRing"
+                                 Stroke="#66FFFFFF"
+                                 StrokeThickness="1"
+                                 Margin="1"
+                                 IsHitTestVisible="False" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <!-- 悬停：整体略提高不透明度、边缘反光更亮；保留 1.04 缩放，不加动画。 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Fill" Value="#FFFFFFFF" />
-                            <Setter Property="Stroke" Value="#A6000000" />
-                            <Setter Property="RenderTransform">
+                            <Setter TargetName="GlassBase" Property="Fill" Value="#D9FFFFFF" />
+                            <Setter TargetName="GlassNoise" Property="Opacity" Value="0.10" />
+                            <Setter TargetName="GlassInnerRing" Property="Stroke" Value="#A6FFFFFF" />
+                            <Setter TargetName="GlassRoot" Property="RenderTransform">
                                 <Setter.Value>
                                     <ScaleTransform ScaleX="1.04" ScaleY="1.04" />
                                 </Setter.Value>
                             </Setter>
                         </Trigger>
-                    </Style.Triggers>
-                </Style>
-            </Ellipse.Style>
-        </Ellipse>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </ContentControl.Template>
+        </ContentControl>
     </Grid>
 </Window>
