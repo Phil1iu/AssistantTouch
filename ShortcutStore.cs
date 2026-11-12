@@ -211,36 +211,7 @@ internal sealed class ShortcutStore
         try
         {
             Directory.CreateDirectory(DirectoryPath);
-
-            using var stream = new MemoryStream();
-            using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
-            {
-                writer.WriteStartObject();
-                writer.WriteStartArray("shortcuts");
-
-                foreach (ShortcutDefinition shortcut in _shortcuts)
-                {
-                    writer.WriteStartObject();
-                    writer.WriteString("kind", shortcut.Kind == ShortcutKind.System ? "system" : "app");
-
-                    if (shortcut.Kind == ShortcutKind.System)
-                    {
-                        writer.WriteString("action", shortcut.Action);
-                    }
-                    else
-                    {
-                        writer.WriteString("path", shortcut.Path);
-                    }
-
-                    writer.WriteString("name", shortcut.Name);
-                    writer.WriteEndObject();
-                }
-
-                writer.WriteEndArray();
-                writer.WriteEndObject();
-            }
-
-            File.WriteAllBytes(tempPath, stream.ToArray());
+            File.WriteAllBytes(tempPath, Serialize(_shortcuts));
             File.Move(tempPath, FilePath, overwrite: true);
         }
         catch (Exception)
@@ -256,5 +227,39 @@ internal sealed class ShortcutStore
             {
             }
         }
+    }
+
+    /// <summary>序列化为与 <see cref="Save"/> 完全一致的 JSON；internal 便于单测 round-trip。</summary>
+    internal static byte[] Serialize(IReadOnlyList<ShortcutDefinition> shortcuts)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream, new JsonWriterOptions { Indented = true }))
+        {
+            writer.WriteStartObject();
+            writer.WriteStartArray("shortcuts");
+
+            foreach (ShortcutDefinition shortcut in shortcuts)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("kind", shortcut.Kind == ShortcutKind.System ? "system" : "app");
+
+                if (shortcut.Kind == ShortcutKind.System)
+                {
+                    writer.WriteString("action", shortcut.Action);
+                }
+                else
+                {
+                    writer.WriteString("path", shortcut.Path);
+                }
+
+                writer.WriteString("name", shortcut.Name);
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+
+        return stream.ToArray();
     }
 }
