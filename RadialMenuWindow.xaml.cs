@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -260,6 +261,15 @@ public partial class RadialMenuWindow : Window
             Cursor = Cursors.Hand,
             Child = content
         };
+
+        // 小圆本身通常没有 automation peer；名称同时挂到 Border 和图标上，
+        // 这样只有图标、没有文字的 app 圆也能被 UIA 按名字数到。
+        // 文字圆保持 TextBlock 自己的文本名（如「桌面」），不被完整名称覆盖。
+        AutomationProperties.SetName(circle, tooltip);
+        if (content is Image)
+        {
+            AutomationProperties.SetName(content, tooltip);
+        }
 
         var style = new Style(typeof(Border));
         style.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromArgb(0xF5, 255, 255, 255))));
