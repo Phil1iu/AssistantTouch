@@ -31,12 +31,26 @@ public partial class MainWindow : Window
     private PointerSource _activeSource;
     private int _activeTouchId = -1;
     private RadialMenuWindow? _radialMenu;
+    private readonly ShortcutStore _shortcutStore;
 
     public MainWindow()
     {
         InitializeComponent();
+        _shortcutStore = ShortcutStore.Load();
         Loaded += OnWindowLoaded;
+        PreviewKeyDown += OnWindowPreviewKeyDown;
         RestoreSavedPosition();
+    }
+
+    /// <summary>径向菜单打开时，Esc 也可由仍持有焦点的球窗口关闭。</summary>
+    private void OnWindowPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_radialMenu is not null && e.Key == Key.Escape)
+        {
+            _radialMenu.Close();
+            _radialMenu = null;
+            e.Handled = true;
+        }
     }
 
     /// <summary>
@@ -383,7 +397,7 @@ public partial class MainWindow : Window
         _radialMenu?.Close();
 
         Point ballCenter = PointToScreen(new Point(Width / 2, Height / 2));
-        var radial = new RadialMenuWindow(ShortcutDefinition.CreateDefaults(), ballCenter);
+        var radial = new RadialMenuWindow(_shortcutStore, ballCenter);
         _radialMenu = radial;
         radial.Closed += (_, _) =>
         {

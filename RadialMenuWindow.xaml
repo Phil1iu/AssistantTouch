@@ -14,5 +14,6 @@
     <!-- 全屏透明通道：点非圆区域关闭；圆由代码添加到 Canvas。 -->
     <Canvas x:Name="RingCanvas"
             Background="#01000000"
+            Focusable="True"
             MouseLeftButtonUp="OnCanvasMouseLeftButtonUp" />
 </Window>
