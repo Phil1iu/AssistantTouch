@@ -666,6 +666,131 @@ internal static class RadialLayout
         return max;
     }
 
+    /// <summary>
+    /// <see cref="RadialLayoutMode.Partial"/> 时「+」的兜底选址（rev-10 P2）。
+    /// 顺序：① preferred 中第一个「整圆在工作区内且距球心 ≥ minBallDistance」的点；
+    /// ② 8 个罗盘方向 + 4 个朝向可用区角点的方向，以 70→可用区对角长的递增半径搜索；
+    /// ③ 可用区内离球心最远的角点；若最远距离仍 &lt; minBallDistance 则返回 null（UI 不画「+」）。
+    /// 任何成功返回的点都满足「整圆在工作区内 && 距球心 ≥ minBallDistance」，绝不与球心重合。
+    /// </summary>
+    public static Point? ChooseFallbackCenter(
+        Point ballCenter,
+        Rect workArea,
+        double circleSize,
+        double minBallDistance,
+        IReadOnlyList<Point>? preferredCenters,
+        out string diagnostic)
+    {
+        double half = circleSize / 2;
+        double left = workArea.Left + half;
+        double top = workArea.Top + half;
+        double right = workArea.Right - half;
+        double bottom = workArea.Bottom - half;
+
+        if (right < left || bottom < top)
+        {
+            diagnostic = $"no-room-for-circle: area {workArea.Width:0.#}x{workArea.Height:0.#} < circle {circleSize:0.#}";
+            return null;
+        }
+
+        var centerArea = new Rect(left, top, right - left, bottom - top);
+
+        if (preferredCenters is not null)
+        {
+            for (int i = 0; i < preferredCenters.Count; i++)
+            {
+                if (IsFallbackValid(preferredCenters[i], ballCenter, centerArea, minBallDistance))
+                {
+                    diagnostic = $"preferred[{i}]";
+                    return preferredCenters[i];
+                }
+            }
+        }
+
+        // ② 以递增半径做多方向搜索：优先离球近、且落回工作区内的点。
+        double maxRadius = GetMaxRadius(ballCenter, centerArea);
+        List<double> directions = BuildSearchDirections(ballCenter, centerArea);
+
+        for (double radius = minBallDistance; radius <= maxRadius + Tolerance; radius += 1.0)
+        {
+            foreach (double angle in directions)
+            {
+                var candidate = new Point(
+                    ballCenter.X + radius * Math.Cos(angle),
+                    ballCenter.Y + radius * Math.Sin(angle));
+
+                if (IsFallbackValid(candidate, ballCenter, centerArea, minBallDistance))
+                {
+                    diagnostic = $"search r={radius:0.#}";
+                    return candidate;
+                }
+            }
+        }
+
+        // ③ 最远角点（矩形内离球心最远的点必是某个角点）。
+        Point farthest = default;
+        double farthestDistance = -1;
+        foreach (Point corner in new[]
+                 {
+                     new Point(centerArea.Left, centerArea.Top),
+                     new Point(centerArea.Right, centerArea.Top),
+                     new Point(centerArea.Left, centerArea.Bottom),
+                     new Point(centerArea.Right, centerArea.Bottom)
+                 })
+        {
+            double distance = (corner - ballCenter).Length;
+            if (distance > farthestDistance)
+            {
+                farthestDistance = distance;
+                farthest = corner;
+            }
+        }
+
+        if (farthestDistance >= minBallDistance - Tolerance)
+        {
+            diagnostic = $"farthest-corner r={farthestDistance:0.#}";
+            return farthest;
+        }
+
+        diagnostic =
+            $"no-valid-fallback: farthest point {farthestDistance:0.#} < minBallDistance {minBallDistance:0.#}";
+        return null;
+    }
+
+    private static bool IsFallbackValid(Point point, Point ballCenter, Rect centerArea, double minBallDistance)
+    {
+        return point.X >= centerArea.Left - Tolerance &&
+               point.X <= centerArea.Right + Tolerance &&
+               point.Y >= centerArea.Top - Tolerance &&
+               point.Y <= centerArea.Bottom + Tolerance &&
+               (point - ballCenter).Length >= minBallDistance - Tolerance;
+    }
+
+    private static List<double> BuildSearchDirections(Point ballCenter, Rect centerArea)
+    {
+        var directions = new List<double>(12);
+
+        // 8 个罗盘方向：从 12 点开始顺时针。
+        for (int i = 0; i < 8; i++)
+        {
+            directions.Add(-Math.PI / 2 + i * Math.PI / 4);
+        }
+
+        // 4 个朝向可用区角点的方向（球不在中心时与 45° 罗盘方向不同）。
+        foreach (Point corner in new[]
+                 {
+                     new Point(centerArea.Left, centerArea.Top),
+                     new Point(centerArea.Right, centerArea.Top),
+                     new Point(centerArea.Left, centerArea.Bottom),
+                     new Point(centerArea.Right, centerArea.Bottom)
+                 })
+        {
+            directions.Add(Math.Atan2(corner.Y - ballCenter.Y, corner.X - ballCenter.X));
+        }
+
+        return directions;
+    }
+
     private readonly record struct Segment(double Start, double End);
 
     private readonly record struct Arc(double Start, double Length);

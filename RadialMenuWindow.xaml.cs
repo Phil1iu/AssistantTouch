@@ -109,64 +109,38 @@ public partial class RadialMenuWindow : Window
             RingRadius,
             MinDistanceFromBall);
 
-        for (int i = 0; i < shortcutCount && i < layout.Centers.Count; i++)
+        // Partial（极小/异常工作区）按 rev-10 P2 降级：不渲染任何快捷小圆，只尝试画「+」。
+        if (layout.AllPlaced)
         {
-            AddCircle(CreateShortcutCircle(_store.Shortcuts[i]), layout.Centers[i]);
+            for (int i = 0; i < shortcutCount && i < layout.Centers.Count; i++)
+            {
+                AddCircle(CreateShortcutCircle(_store.Shortcuts[i]), layout.Centers[i]);
+            }
         }
 
-        // 极端小工作区下几何可能放不下全部槽位（layout.AllPlaced=false）：
-        // 仍把「+」画在工作区内的兜底位置，避免无法添加快捷项，也绝不抛异常。
-        Point plusPosition = layout.Centers.Count >= total
+        Point? plusPosition = layout.AllPlaced && layout.Centers.Count >= total
             ? layout.Centers[shortcutCount]
-            : GetFallbackPlusPosition(ballCenter, workArea);
-        AddCircle(CreatePlusCircle(), plusPosition);
+            : RadialLayout.ChooseFallbackCenter(
+                ballCenter,
+                workArea,
+                CircleSize,
+                MinDistanceFromBall,
+                layout.Centers,
+                out _);
+
+        // 兜底纯函数确认无合法位置（null）时不画「+」，绝不让它压在球心上。
+        if (plusPosition is { } plusPoint)
+        {
+            AddCircle(CreatePlusCircle(), plusPoint);
+        }
     }
 
+    /// <summary>把圆排到指定中心；位置由 <see cref="RadialLayout"/> 纯函数给出。</summary>
     private void AddCircle(Border circle, Point center)
     {
         Canvas.SetLeft(circle, center.X - CircleSize / 2);
         Canvas.SetTop(circle, center.Y - CircleSize / 2);
         RingCanvas.Children.Add(circle);
-    }
-
-    /// <summary>
-    /// 布局失败（工作区小于两圈）时「+」的兜底位置：钳进工作区；若离球太近则往内侧让开。
-    /// 仅用于诊断性极端场景，不参与常规布局。
-    /// </summary>
-    private static Point GetFallbackPlusPosition(Point ballCenter, Rect workArea)
-    {
-        double half = CircleSize / 2;
-        double left = workArea.Left + half;
-        double right = workArea.Right - half;
-        double top = workArea.Top + half;
-        double bottom = workArea.Bottom - half;
-
-        if (right < left || bottom < top)
-        {
-            return new Point(workArea.Left + workArea.Width / 2, workArea.Top + workArea.Height / 2);
-        }
-
-        var candidate = new Point(
-            Math.Clamp(ballCenter.X, left, right),
-            Math.Clamp(ballCenter.Y, top, bottom));
-
-        if ((candidate - ballCenter).Length >= MinDistanceFromBall)
-        {
-            return candidate;
-        }
-
-        // 优先向下、向上、向右、向左让开一个最小距离，取第一个仍在工作区内的位置。
-        foreach ((double dx, double dy) in new[] { (0.0, MinDistanceFromBall), (0.0, -MinDistanceFromBall),
-                     (MinDistanceFromBall, 0.0), (-MinDistanceFromBall, 0.0) })
-        {
-            var shifted = new Point(candidate.X + dx, candidate.Y + dy);
-            if (shifted.X >= left && shifted.X <= right && shifted.Y >= top && shifted.Y <= bottom)
-            {
-                return shifted;
-            }
-        }
-
-        return candidate;
     }
 
     private Rect GetWorkAreaClientRect(Point screenPoint)
