@@ -132,7 +132,7 @@
                         <!-- 玻璃底：72% 白，能隐约透出背后的桌面内容。 -->
                         <Ellipse x:Name="GlassBase"
                                  Fill="#B8FFFFFF"
-                                 Stroke="#33000000"
+                                 Stroke="#59000000"
                                  StrokeThickness="1" />
 
                         <!-- 雾面：程序生成的灰度细噪点，透明度 8%（悬停 10%）。 -->
@@ -154,9 +154,9 @@
                             </Ellipse.Fill>
                         </Ellipse>
 
-                        <!-- 内圈 1px 半透明白：玻璃边缘反光。 -->
+                        <!-- 内圈 1px 半透明白：玻璃边缘反光，与外圈深色描边形成双层玻璃边。 -->
                         <Ellipse x:Name="GlassInnerRing"
-                                 Stroke="#66FFFFFF"
+                                 Stroke="#80FFFFFF"
                                  StrokeThickness="1"
                                  Margin="1"
                                  IsHitTestVisible="False" />
