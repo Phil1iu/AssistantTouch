@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace AssistantTouch;
@@ -6,6 +7,7 @@ namespace AssistantTouch;
 /// <summary>
 /// 快捷方式列表的加载/保存：<c>%LOCALAPPDATA%\AssistantTouch\shortcuts.json</c>。
 /// 文件缺失、损坏、字段非法或超过 8 个时回落到默认 6 个系统快捷方式，不崩溃。
+/// 每次加载都会覆盖写 <c>shortcuts-load.log</c>，记录路径/存在性/长度/解析结果/条数/首个失败原因。
 /// </summary>
 internal sealed class ShortcutStore
 {
@@ -35,25 +37,95 @@ internal sealed class ShortcutStore
     /// <summary>快捷方式文件的完整路径。</summary>
     public static string FilePath { get; } = Path.Combine(DirectoryPath, "shortcuts.json");
 
+    /// <summary>最近一次加载的诊断日志路径（覆盖写）。</summary>
+    public static string LogFilePath { get; } = Path.Combine(DirectoryPath, "shortcuts-load.log");
+
     public IReadOnlyList<ShortcutDefinition> Shortcuts => _shortcuts;
 
     public static ShortcutStore Load()
     {
+        string? text = null;
+
         try
         {
-            if (File.Exists(FilePath) &&
-                TryParse(File.ReadAllText(FilePath), out List<ShortcutDefinition>? parsed) &&
-                parsed is not null)
+            if (File.Exists(FilePath))
             {
-                return new ShortcutStore(parsed);
+                text = File.ReadAllText(FilePath);
+                if (TryParse(text, out List<ShortcutDefinition>? parsed, out string? error) && parsed is not null)
+                {
+                    WriteLog(exists: true, length: text.Length, parsed: true, count: parsed.Count, error: null, text: text);
+                    return new ShortcutStore(parsed);
+                }
+
+                WriteLog(exists: true, length: text.Length, parsed: false, count: 0, error: error ?? "unknown", text: text);
+            }
+            else
+            {
+                WriteLog(exists: false, length: 0, parsed: false, count: 0, error: "missing", text: null);
             }
         }
-        catch (Exception)
+        catch (Exception exception)
         {
-            // 读失败按缺失处理。
+            WriteLog(
+                exists: File.Exists(FilePath),
+                length: text?.Length ?? -1,
+                parsed: false,
+                count: 0,
+                error: exception.GetType().Name + ": " + exception.Message,
+                text: text);
         }
 
         return new ShortcutStore(ShortcutDefinition.CreateDefaults());
+    }
+
+    /// <summary>把本次加载结果覆盖写到 <c>shortcuts-load.log</c>；日志失败不影响加载。</summary>
+    private static void WriteLog(bool exists, int length, bool parsed, int count, string? error, string? text)
+    {
+        try
+        {
+            Directory.CreateDirectory(DirectoryPath);
+
+            string line = string.Join(
+                " ",
+                DateTime.Now.ToString("O"),
+                "path=" + FilePath,
+                "exists=" + exists,
+                "length=" + length,
+                "parsed=" + parsed,
+                "count=" + count,
+                "error=" + (error ?? "-"),
+                "preview=" + BuildPreview(text));
+
+            File.WriteAllText(LogFilePath, line + Environment.NewLine);
+        }
+        catch (Exception)
+        {
+            // 诊断日志失败不影响加载。
+        }
+    }
+
+    /// <summary>把原文压成单行预览（控制字符与 BOM 换成空格），最多 240 个字符。</summary>
+    private static string BuildPreview(string? text)
+    {
+        if (text is null)
+        {
+            return "-";
+        }
+
+        const int maxLength = 240;
+        var builder = new StringBuilder(Math.Min(text.Length, maxLength + 1));
+        foreach (char character in text)
+        {
+            if (builder.Length >= maxLength)
+            {
+                builder.Append('…');
+                break;
+            }
+
+            builder.Append(char.IsControl(character) || character == '\uFEFF' ? ' ' : character);
+        }
+
+        return builder.ToString();
     }
 
     public bool TryAdd(ShortcutDefinition shortcut)
@@ -102,10 +174,21 @@ internal sealed class ShortcutStore
     /// <summary>解析 JSON（纯函数，internal 便于单测）：严格校验，任一非法项即返回 false。</summary>
     internal static bool TryParse(string? json, out List<ShortcutDefinition>? shortcuts)
     {
+        return TryParse(json, out shortcuts, out _);
+    }
+
+    /// <summary>
+    /// 解析 JSON，并在失败时通过 <paramref name="error"/> 返回首个失败原因（供诊断日志使用）。
+    /// 严格校验：任一非法项即整体失败，调用方回落到默认列表。
+    /// </summary>
+    internal static bool TryParse(string? json, out List<ShortcutDefinition>? shortcuts, out string? error)
+    {
         shortcuts = null;
+        error = null;
 
         if (string.IsNullOrWhiteSpace(json))
         {
+            error = "empty";
             return false;
         }
 
@@ -114,23 +197,48 @@ internal sealed class ShortcutStore
             using JsonDocument document = JsonDocument.Parse(json);
             JsonElement root = document.RootElement;
 
-            if (root.ValueKind != JsonValueKind.Object ||
-                !root.TryGetProperty("shortcuts", out JsonElement array) ||
-                array.ValueKind != JsonValueKind.Array)
+            if (root.ValueKind != JsonValueKind.Object)
             {
+                error = "root-not-object";
+                return false;
+            }
+
+            if (!root.TryGetProperty("shortcuts", out JsonElement array))
+            {
+                error = "missing-shortcuts";
+                return false;
+            }
+
+            if (array.ValueKind != JsonValueKind.Array)
+            {
+                error = "shortcuts-not-array";
                 return false;
             }
 
             var parsed = new List<ShortcutDefinition>();
+            int index = 0;
 
             foreach (JsonElement element in array.EnumerateArray())
             {
-                if (element.ValueKind != JsonValueKind.Object ||
-                    !element.TryGetProperty("kind", out JsonElement kindElement) ||
-                    kindElement.ValueKind != JsonValueKind.String ||
-                    !element.TryGetProperty("name", out JsonElement nameElement) ||
+                string item = $"item[{index}]";
+
+                if (element.ValueKind != JsonValueKind.Object)
+                {
+                    error = item + ": not-object";
+                    return false;
+                }
+
+                if (!element.TryGetProperty("kind", out JsonElement kindElement) ||
+                    kindElement.ValueKind != JsonValueKind.String)
+                {
+                    error = item + ": missing-kind";
+                    return false;
+                }
+
+                if (!element.TryGetProperty("name", out JsonElement nameElement) ||
                     nameElement.ValueKind != JsonValueKind.String)
                 {
+                    error = item + ": missing-name";
                     return false;
                 }
 
@@ -138,6 +246,7 @@ internal sealed class ShortcutStore
                 string name = nameElement.GetString() ?? string.Empty;
                 if (string.IsNullOrWhiteSpace(name))
                 {
+                    error = item + ": empty-name";
                     return false;
                 }
 
@@ -146,12 +255,14 @@ internal sealed class ShortcutStore
                     if (!element.TryGetProperty("action", out JsonElement actionElement) ||
                         actionElement.ValueKind != JsonValueKind.String)
                     {
+                        error = item + ": missing-action";
                         return false;
                     }
 
                     string? action = actionElement.GetString();
                     if (action is null || !KnownSystemActions.Contains(action))
                     {
+                        error = item + ": unknown-action";
                         return false;
                     }
 
@@ -167,12 +278,14 @@ internal sealed class ShortcutStore
                     if (!element.TryGetProperty("path", out JsonElement pathElement) ||
                         pathElement.ValueKind != JsonValueKind.String)
                     {
+                        error = item + ": missing-path";
                         return false;
                     }
 
                     string? path = pathElement.GetString();
                     if (string.IsNullOrWhiteSpace(path))
                     {
+                        error = item + ": empty-path";
                         return false;
                     }
 
@@ -185,20 +298,30 @@ internal sealed class ShortcutStore
                 }
                 else
                 {
+                    error = item + ": unknown-kind";
                     return false;
                 }
+
+                index++;
             }
 
             if (parsed.Count > MaxShortcuts)
             {
+                error = "too-many:" + parsed.Count;
                 return false;
             }
 
             shortcuts = parsed;
             return true;
         }
-        catch (Exception)
+        catch (JsonException exception)
         {
+            error = "JsonException: " + exception.Message;
+            return false;
+        }
+        catch (Exception exception)
+        {
+            error = exception.GetType().Name + ": " + exception.Message;
             return false;
         }
     }

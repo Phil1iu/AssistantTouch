@@ -66,6 +66,9 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained fals
 - 内容：`{"shortcuts":[{"kind":"system","action":"showDesktop","name":"显示桌面"},{"kind":"app","path":"C:\\...\\x.exe","name":"X"}]}`
 - 默认 6 个系统快捷方式；最多 8 个；文件缺失/损坏/字段非法时回落到默认，不崩溃
 - 修改（添加/删除/更换/恢复默认）立即写盘，临时文件 + 覆盖移动
+- **加载时机**：每次打开径向菜单都会重新读取该文件（不是只在启动时读一次），外部修改后无需重启
+- **诊断日志**：每次加载覆盖写 `%LOCALAPPDATA%\AssistantTouch\shortcuts-load.log`，记录时间、路径、是否存在、长度、解析结果、条数、首个失败原因（含 JSON 异常消息）与内容预览
+- 路径按 JSON 规则写双反斜杠（`"C:\\Windows\\System32\\notepad.exe"`）；写成单反斜杠会解析失败并回落到 6 个默认项，失败原因见上面的日志
 
 ## 已知问题 / 待决策
 - **内存验收口径冲突**：本机空 WPF 模板空闲即 227.9MB（工作集），本项目 207~231MB，

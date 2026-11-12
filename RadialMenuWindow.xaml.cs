@@ -20,13 +20,15 @@ public partial class RadialMenuWindow : Window
 
     private readonly ShortcutStore _store;
     private readonly Point _ballCenterScreen;
+    private readonly Window _ownerWindow;
 
-    internal RadialMenuWindow(ShortcutStore store, Point ballCenterScreen)
+    internal RadialMenuWindow(ShortcutStore store, Point ballCenterScreen, Window owner)
     {
         InitializeComponent();
 
         _store = store;
         _ballCenterScreen = ballCenterScreen;
+        _ownerWindow = owner;
 
         Left = SystemParameters.VirtualScreenLeft;
         Top = SystemParameters.VirtualScreenTop;
@@ -406,7 +408,7 @@ public partial class RadialMenuWindow : Window
             if (!_store.TryAdd(shortcut))
             {
                 MessageBox.Show(
-                    Application.Current.MainWindow,
+                    _ownerWindow,
                     "最多 8 个快捷启动",
                     "AssistantTouch",
                     MessageBoxButton.OK,
@@ -444,9 +446,8 @@ public partial class RadialMenuWindow : Window
             Multiselect = false
         };
 
-        bool? result = Application.Current?.MainWindow is Window owner
-            ? dialog.ShowDialog(owner)
-            : dialog.ShowDialog();
+        // 文件对话框以悬浮球主窗口为 Owner（不用径向窗口），环已隐藏，确保对话框可聚焦、可键盘输入。
+        bool? result = dialog.ShowDialog(_ownerWindow);
 
         return result == true ? dialog.FileName : null;
     }

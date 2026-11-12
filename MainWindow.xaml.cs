@@ -31,7 +31,7 @@ public partial class MainWindow : Window
     private PointerSource _activeSource;
     private int _activeTouchId = -1;
     private RadialMenuWindow? _radialMenu;
-    private readonly ShortcutStore _shortcutStore;
+    private ShortcutStore _shortcutStore;
 
     public MainWindow()
     {
@@ -401,8 +401,11 @@ public partial class MainWindow : Window
     {
         _radialMenu?.Close();
 
+        // 每次打开都重新读取配置：外部修改 shortcuts.json 后无需重启；也排除旧实例的缓存。
+        _shortcutStore = ShortcutStore.Load();
+
         Point ballCenter = PointToScreen(new Point(Width / 2, Height / 2));
-        var radial = new RadialMenuWindow(_shortcutStore, ballCenter);
+        var radial = new RadialMenuWindow(_shortcutStore, ballCenter, this);
         _radialMenu = radial;
         radial.Closed += (_, _) =>
         {
