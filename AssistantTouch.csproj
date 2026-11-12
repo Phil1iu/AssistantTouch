@@ -14,8 +14,9 @@
     <!-- WPF 入口的 DPI 感知由 app.manifest 声明 PerMonitorV2；WFAC010 是 WinForms
          分析器建议改用 ApplicationHighDpiMode 的提示，不适用于本 WPF 应用（WinForms 仅用于托盘）。 -->
     <NoWarn>$(NoWarn);WFAC010</NoWarn>
-    <!-- 测试工程在 tests/ 下；主工程的默认 glob 必须排除，否则会被 WPF 临时工程当源码编译。 -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**</DefaultItemExcludes>
+    <!-- 测试/工具工程在 tests/、tools/ 下；主工程的默认 glob 必须排除，
+         否则会被 WPF 临时工程当源码编译（tools/TouchProbe 是独立控制台项目）。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests/**;tools/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
