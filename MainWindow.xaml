@@ -100,15 +100,13 @@
           MouseLeftButtonDown="OnMouseLeftButtonDown"
           MouseMove="OnMouseMove"
           MouseLeftButtonUp="OnMouseLeftButtonUp"
-          PreviewMouseRightButtonDown="OnMouseRightButtonDown"
           TouchDown="OnTouchDown"
           TouchMove="OnTouchMove"
           TouchUp="OnTouchUp"
           LostTouchCapture="OnLostTouchCapture">
 
-        <!-- 右键菜单：重置位置 / 关于 / 分隔线 / 退出。
-             右键由 ContextMenuService 自动弹出；左键单击（无拖动）也会在系统双击时间后打开同一个菜单。
-             拖拽改为手动实现（4px 阈值），因此不再使用 DragMove()。 -->
+        <!-- 右键菜单：重置位置 / 开机自启 / 关于 / 退出。右键由 ContextMenuService 自动弹出；
+             左键只用于拖拽（未拖动时不执行任何动作）。拖拽为手动实现（4px 阈值），不再使用 DragMove()。 -->
         <Grid.ContextMenu>
             <ContextMenu Opened="OnBallMenuOpened" Style="{StaticResource BallContextMenuStyle}">
                 <MenuItem Header="重置位置" Click="OnResetPositionClick" Style="{StaticResource BallMenuItemStyle}" />
@@ -120,22 +118,14 @@
         </Grid.ContextMenu>
 
         <!-- Margin=2 保持不变：球体直径维持 68px（72px 窗口内留 2px 边），本轮不改布局/尺寸。
-             Issue #1 风格 B：纯白极简 + 1px 细灰渐变环，删除投影效果与 2px 深色描边。 -->
+             纯白极简 + 1px 纯色灰环（负责人 2026-11-12 现场纠偏：去掉渐变），删除投影与 2px 深色描边。 -->
         <Ellipse Margin="2">
             <Ellipse.Style>
                 <Style TargetType="Ellipse">
-                    <!-- 常态：近纯白填充（96% 白，保留轻微半透明观感）+ 1px 对角灰渐变环（深→浅）。
-                         环的深端用于白底可见性，浅端制造「细灰渐变」而不是生硬黑边。 -->
+                    <!-- 常态：近纯白填充（96% 白，保留轻微半透明观感）+ 1px 纯色 #80000000 环。 -->
                     <Setter Property="Fill" Value="#F5FFFFFF" />
                     <Setter Property="StrokeThickness" Value="1" />
-                    <Setter Property="Stroke">
-                        <Setter.Value>
-                            <LinearGradientBrush StartPoint="0.146,0.146" EndPoint="0.854,0.854">
-                                <GradientStop Color="#80000000" Offset="0" />
-                                <GradientStop Color="#1F000000" Offset="1" />
-                            </LinearGradientBrush>
-                        </Setter.Value>
-                    </Setter>
+                    <Setter Property="Stroke" Value="#80000000" />
                     <Setter Property="RenderTransformOrigin" Value="0.5,0.5" />
                     <Setter Property="RenderTransform">
                         <Setter.Value>
@@ -143,17 +133,10 @@
                         </Setter.Value>
                     </Setter>
                     <Style.Triggers>
-                        <!-- 悬停：填充到纯白，环整体加深一档；缩放改为 1.04，避免弹跳感。 -->
+                        <!-- 悬停：填充到纯白，环加深为纯色 #A6000000；缩放 1.04。 -->
                         <Trigger Property="IsMouseOver" Value="True">
                             <Setter Property="Fill" Value="#FFFFFFFF" />
-                            <Setter Property="Stroke">
-                                <Setter.Value>
-                                    <LinearGradientBrush StartPoint="0.146,0.146" EndPoint="0.854,0.854">
-                                        <GradientStop Color="#A6000000" Offset="0" />
-                                        <GradientStop Color="#40000000" Offset="1" />
-                                    </LinearGradientBrush>
-                                </Setter.Value>
-                            </Setter>
+                            <Setter Property="Stroke" Value="#A6000000" />
                             <Setter Property="RenderTransform">
                                 <Setter.Value>
                                     <ScaleTransform ScaleX="1.04" ScaleY="1.04" />

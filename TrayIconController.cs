@@ -66,8 +66,6 @@ internal sealed class TrayIconController : IDisposable
     {
         if (_window.IsVisible)
         {
-            // 隐藏前取消尚未触发的单击计时器，避免隐藏后菜单弹出。
-            _window.CancelPendingClick();
             _window.Hide();
         }
         else
