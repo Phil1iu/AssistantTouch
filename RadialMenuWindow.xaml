@@ -15,5 +15,6 @@
     <Canvas x:Name="RingCanvas"
             Background="#01000000"
             Focusable="True"
-            MouseLeftButtonUp="OnCanvasMouseLeftButtonUp" />
+            MouseLeftButtonUp="OnCanvasMouseLeftButtonUp"
+            MouseRightButtonUp="OnCanvasMouseRightButtonUp" />
 </Window>

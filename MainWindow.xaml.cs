@@ -129,15 +129,20 @@ public partial class MainWindow : Window
         return WindowClamp.Clamp(targetLeft, targetTop, Width, Height, target.WorkArea);
     }
 
-    /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
-    protected override void OnClosing(CancelEventArgs e)
+    /// <summary>关闭径向菜单（托盘隐藏、窗口关闭时调用）。</summary>
+    internal void CloseRadialMenu()
     {
         if (_radialMenu is not null)
         {
             _radialMenu.Close();
             _radialMenu = null;
         }
+    }
 
+    /// <summary>正常关闭窗口时保存当前位置（位置文件写失败不影响退出）。</summary>
+    protected override void OnClosing(CancelEventArgs e)
+    {
+        CloseRadialMenu();
         WindowPositionStore.Save(Left, Top);
         base.OnClosing(e);
     }

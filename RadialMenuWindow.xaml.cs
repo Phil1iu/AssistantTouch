@@ -16,7 +16,7 @@ public partial class RadialMenuWindow : Window
 {
     private const double CircleSize = 44;
     private const double RingRadius = 95;
-    private const double RingExtent = RingRadius + CircleSize / 2;
+    private const double MinDistanceFromBall = 70;
 
     private readonly ShortcutStore _store;
     private readonly Point _ballCenterScreen;
@@ -61,6 +61,31 @@ public partial class RadialMenuWindow : Window
         Close();
     }
 
+    private void OnCanvasMouseRightButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        // 0 项（只剩「+」）时，右键环背景也能恢复默认。
+        if (_store.Shortcuts.Count == 0)
+        {
+            ShowRestoreDefaultsMenu(RingCanvas);
+            e.Handled = true;
+        }
+    }
+
+    private void ShowRestoreDefaultsMenu(UIElement target)
+    {
+        var menu = new ContextMenu();
+        var resetItem = new MenuItem { Header = "恢复默认" };
+        resetItem.Click += (_, _) =>
+        {
+            _store.ResetToDefaults();
+            RebuildRing();
+        };
+
+        menu.Items.Add(resetItem);
+        menu.PlacementTarget = target;
+        menu.IsOpen = true;
+    }
+
     private void RebuildRing()
     {
         RingCanvas.Children.Clear();
@@ -71,21 +96,102 @@ public partial class RadialMenuWindow : Window
         Point ballCenter = PointFromScreen(_ballCenterScreen);
         Rect workArea = GetWorkAreaClientRect(_ballCenterScreen);
 
-        // 整体钳进当前显示器工作区；大圆保持原位，只在必要时偏移圆心。
-        double centerX = Math.Max(workArea.Left + RingExtent, Math.Min(workArea.Right - RingExtent, ballCenter.X));
-        double centerY = Math.Max(workArea.Top + RingExtent, Math.Min(workArea.Bottom - RingExtent, ballCenter.Y));
+        // 位置始终按球心计算（不再钳环心）；槽位中心在工作区外或离球心 <70px 时跳过。
+        // 边缘处会隐藏部分槽位，但保证小圆不与大球重叠、且可见圆完整落在工作区内。
+        var positions = new Point[total];
+        var visible = new bool[total];
 
         for (int i = 0; i < total; i++)
         {
             double angle = -Math.PI / 2 + 2 * Math.PI * i / total;
-            double x = centerX + RingRadius * Math.Cos(angle);
-            double y = centerY + RingRadius * Math.Sin(angle);
-
-            Border circle = i < shortcutCount ? CreateShortcutCircle(_store.Shortcuts[i]) : CreatePlusCircle();
-            Canvas.SetLeft(circle, x - CircleSize / 2);
-            Canvas.SetTop(circle, y - CircleSize / 2);
-            RingCanvas.Children.Add(circle);
+            positions[i] = new Point(
+                ballCenter.X + RingRadius * Math.Cos(angle),
+                ballCenter.Y + RingRadius * Math.Sin(angle));
+            visible[i] = IsSlotVisible(positions[i], ballCenter, workArea);
         }
+
+        // 「+」优先用自己的槽位；被跳过时移到最近的可见槽位（占用该槽，原快捷项隐藏）。
+        int plusSlot = shortcutCount;
+        if (!visible[plusSlot])
+        {
+            int nearestSlot = -1;
+            double nearestDistance = double.MaxValue;
+
+            for (int i = 0; i < shortcutCount; i++)
+            {
+                if (!visible[i])
+                {
+                    continue;
+                }
+
+                double distance = (positions[i] - positions[plusSlot]).Length;
+                if (distance < nearestDistance)
+                {
+                    nearestDistance = distance;
+                    nearestSlot = i;
+                }
+            }
+
+            if (nearestSlot >= 0)
+            {
+                plusSlot = nearestSlot;
+            }
+        }
+
+        for (int i = 0; i < shortcutCount; i++)
+        {
+            if (!visible[i] || i == plusSlot)
+            {
+                continue;
+            }
+
+            AddCircle(CreateShortcutCircle(_store.Shortcuts[i]), positions[i]);
+        }
+
+        Point plusPosition = visible[plusSlot]
+            ? positions[plusSlot]
+            : FindFallbackPlusPosition(ballCenter, workArea);
+        AddCircle(CreatePlusCircle(), plusPosition);
+    }
+
+    private void AddCircle(Border circle, Point center)
+    {
+        Canvas.SetLeft(circle, center.X - CircleSize / 2);
+        Canvas.SetTop(circle, center.Y - CircleSize / 2);
+        RingCanvas.Children.Add(circle);
+    }
+
+    private static bool IsSlotVisible(Point center, Point ballCenter, Rect workArea)
+    {
+        double distanceFromBall = (center - ballCenter).Length;
+        if (distanceFromBall < MinDistanceFromBall)
+        {
+            return false;
+        }
+
+        return center.X - CircleSize / 2 >= workArea.Left &&
+               center.X + CircleSize / 2 <= workArea.Right &&
+               center.Y - CircleSize / 2 >= workArea.Top &&
+               center.Y + CircleSize / 2 <= workArea.Bottom;
+    }
+
+    /// <summary>所有槽位都不可见时（极小工作区）的兜底：尝试 8 个方向，最后退回工作区中心。</summary>
+    private static Point FindFallbackPlusPosition(Point ballCenter, Rect workArea)
+    {
+        for (int i = 0; i < 8; i++)
+        {
+            double angle = -Math.PI / 2 + i * Math.PI / 4;
+            var candidate = new Point(
+                ballCenter.X + RingRadius * Math.Cos(angle),
+                ballCenter.Y + RingRadius * Math.Sin(angle));
+
+            if (IsSlotVisible(candidate, ballCenter, workArea))
+            {
+                return candidate;
+            }
+        }
+
+        return new Point(workArea.Left + workArea.Width / 2, workArea.Top + workArea.Height / 2);
     }
 
     private Rect GetWorkAreaClientRect(Point screenPoint)
@@ -126,6 +232,16 @@ public partial class RadialMenuWindow : Window
         {
             args.Handled = true;
             OnAddClick();
+        };
+
+        circle.MouseRightButtonUp += (_, args) =>
+        {
+            // 0 项时「+」也提供恢复默认（否则没有可右键的快捷圆）。
+            if (_store.Shortcuts.Count == 0)
+            {
+                args.Handled = true;
+                ShowRestoreDefaultsMenu(circle);
+            }
         };
 
         return circle;
@@ -237,21 +353,28 @@ public partial class RadialMenuWindow : Window
 
     private void ReplaceShortcut(ShortcutDefinition shortcut)
     {
-        string? path = PickApplication();
-        if (path is null)
+        HideRadialForDialog();
+        try
         {
-            return;
+            string? path = PickApplication();
+            if (path is null)
+            {
+                return;
+            }
+
+            var replacement = new ShortcutDefinition
+            {
+                Kind = ShortcutKind.App,
+                Path = path,
+                Name = Path.GetFileNameWithoutExtension(path)
+            };
+
+            _store.Replace(shortcut, replacement);
         }
-
-        var replacement = new ShortcutDefinition
+        finally
         {
-            Kind = ShortcutKind.App,
-            Path = path,
-            Name = Path.GetFileNameWithoutExtension(path)
-        };
-
-        _store.Replace(shortcut, replacement);
-        RebuildRing();
+            ShowRadialAfterDialog();
+        }
     }
 
     private void OnAddClick()
@@ -262,25 +385,52 @@ public partial class RadialMenuWindow : Window
             return;
         }
 
-        string? path = PickApplication();
-        if (path is null)
+        // 全屏置顶的径向窗口会挡住通用文件对话框（不可点击/无法聚焦）：
+        // 先取消置顶并隐藏，对话框结束后再显示并重排。取消选择也重新打开环。
+        HideRadialForDialog();
+        try
         {
-            return;
+            string? path = PickApplication();
+            if (path is null)
+            {
+                return;
+            }
+
+            var shortcut = new ShortcutDefinition
+            {
+                Kind = ShortcutKind.App,
+                Path = path,
+                Name = Path.GetFileNameWithoutExtension(path)
+            };
+
+            if (!_store.TryAdd(shortcut))
+            {
+                MessageBox.Show(
+                    Application.Current.MainWindow,
+                    "最多 8 个快捷启动",
+                    "AssistantTouch",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
         }
-
-        var shortcut = new ShortcutDefinition
+        finally
         {
-            Kind = ShortcutKind.App,
-            Path = path,
-            Name = Path.GetFileNameWithoutExtension(path)
-        };
-
-        if (!_store.TryAdd(shortcut))
-        {
-            MessageBox.Show(this, "最多 8 个快捷启动", "AssistantTouch", MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
+            ShowRadialAfterDialog();
         }
+    }
 
+    private void HideRadialForDialog()
+    {
+        Topmost = false;
+        Hide();
+    }
+
+    private void ShowRadialAfterDialog()
+    {
+        Show();
+        Topmost = true;
+        Activate();
+        RingCanvas.Focus();
         RebuildRing();
     }
 
@@ -294,7 +444,11 @@ public partial class RadialMenuWindow : Window
             Multiselect = false
         };
 
-        return dialog.ShowDialog(this) == true ? dialog.FileName : null;
+        bool? result = Application.Current?.MainWindow is Window owner
+            ? dialog.ShowDialog(owner)
+            : dialog.ShowDialog();
+
+        return result == true ? dialog.FileName : null;
     }
 
     private static string GetShortLabel(ShortcutDefinition shortcut)

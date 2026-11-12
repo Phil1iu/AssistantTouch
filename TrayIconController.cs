@@ -66,6 +66,8 @@ internal sealed class TrayIconController : IDisposable
     {
         if (_window.IsVisible)
         {
+            // 隐藏球前先关闭径向菜单，避免留下一个全屏透明窗口。
+            _window.CloseRadialMenu();
             _window.Hide();
         }
         else
