@@ -119,22 +119,193 @@ public class RadialLayoutTests
         }
     }
 
-    [Fact]
-    public void Compute_TinyWorkArea_ReturnsDiagnosticWithoutThrowing()
+    [Theory]
+    [InlineData(0, 0, -1920, -51)]
+    [InlineData(0, 0, 1920, 1080)]
+    [InlineData(0, 540, -1920, -51)]
+    [InlineData(0, 540, 1920, 1080)]
+    public void Compute_TranslatedWorkArea_TranslatesCenters(
+        double ballX, double ballY, double offsetX, double offsetY)
     {
-        var tiny = new Rect(0, 0, 80, 80);
-        var ballCenter = new Point(40, 40);
+        var baselineBall = new Point(ballX, ballY);
+        var translatedBall = new Point(ballX + offsetX, ballY + offsetY);
+        var translatedArea = new Rect(
+            FullHd.X + offsetX,
+            FullHd.Y + offsetY,
+            FullHd.Width,
+            FullHd.Height);
 
-        RadialLayoutResult result = RadialLayout.Compute(ballCenter, tiny, 9);
+        RadialLayoutResult baseline = RadialLayout.Compute(baselineBall, FullHd, 9);
+        RadialLayoutResult translated = RadialLayout.Compute(translatedBall, translatedArea, 9);
+
+        Assert.Equal(baseline.Mode, translated.Mode);
+        Assert.Equal(baseline.AllPlaced, translated.AllPlaced);
+        Assert.Equal(baseline.Centers.Count, translated.Centers.Count);
+
+        for (int i = 0; i < baseline.Centers.Count; i++)
+        {
+            var expected = new Point(
+                baseline.Centers[i].X + offsetX,
+                baseline.Centers[i].Y + offsetY);
+
+            Assert.True(
+                (expected - translated.Centers[i]).Length < 1e-9,
+                $"slot {i}: expected {expected}, got {translated.Centers[i]}");
+        }
+
+        AssertValid(translated.Centers, translatedBall, translatedArea);
+    }
+
+    [Theory]
+    [InlineData(-1, 540)]
+    [InlineData(1921, 540)]
+    [InlineData(960, -1)]
+    [InlineData(960, 1081)]
+    [InlineData(-1, -1)]
+    [InlineData(1921, 1081)]
+    public void Compute_BallJustOutsideWorkArea_StillPlacesAllItems(double x, double y)
+    {
+        var ballCenter = new Point(x, y);
+
+        RadialLayoutResult result = RadialLayout.Compute(ballCenter, FullHd, 9);
+
+        Assert.True(result.AllPlaced, $"mode={result.Mode} diag={result.Diagnostic}");
+        Assert.Equal(9, result.Centers.Count);
+        AssertValid(result.Centers, ballCenter, FullHd);
+    }
+
+    [Fact]
+    public void Compute_TopLeftCornerNineItems_UsesDoubleArc()
+    {
+        var ballCenter = new Point(FullHd.Left, FullHd.Top);
+
+        RadialLayoutResult result = RadialLayout.Compute(ballCenter, FullHd, 9);
+
+        Assert.True(result.AllPlaced);
+        Assert.Equal(RadialLayoutMode.DoubleArc, result.Mode);
+        Assert.Equal(9, result.Centers.Count);
+        AssertValid(result.Centers, ballCenter, FullHd);
+    }
+
+    [Fact]
+    public void Compute_FarOutsideBall_NeedsExpandedRadius()
+    {
+        // 球在工作区外 300px：标准半径 95..200 放不下 9 项，需放大到工作区允许的最大半径后双弧布局。
+        var area = new Rect(0, 0, 400, 400);
+        var ballCenter = new Point(-300, 200);
+
+        RadialLayoutResult result = RadialLayout.Compute(ballCenter, area, 9);
+
+        Assert.True(result.AllPlaced, $"mode={result.Mode} diag={result.Diagnostic}");
+        Assert.Equal(RadialLayoutMode.Expanded, result.Mode);
+        Assert.Equal(9, result.Centers.Count);
+        AssertValid(result.Centers, ballCenter, area);
+    }
+
+    [Fact]
+    public void Compute_SmallWorkArea_ReturnsPartialWithValidCenters()
+    {
+        var area = new Rect(0, 0, 180, 180);
+        var ballCenter = new Point(90, 90);
+
+        RadialLayoutResult result = RadialLayout.Compute(ballCenter, area, 9);
 
         Assert.False(result.AllPlaced);
         Assert.Equal(RadialLayoutMode.Partial, result.Mode);
+        Assert.NotEmpty(result.Centers);
+        AssertValid(result.Centers, ballCenter, area);
+    }
+
+    [Theory]
+    [InlineData(40, 20)]
+    [InlineData(80, 40)]
+    public void Compute_WorkAreaSmallerThanCircle_ReturnsEmptyPartial(double size, double expectedBall)
+    {
+        var area = new Rect(0, 0, size, size);
+        var ballCenter = new Point(expectedBall, expectedBall);
+
+        RadialLayoutResult result = RadialLayout.Compute(ballCenter, area, 9);
+
+        Assert.False(result.AllPlaced);
+        Assert.Equal(RadialLayoutMode.Partial, result.Mode);
+        Assert.Empty(result.Centers);
         Assert.False(string.IsNullOrWhiteSpace(result.Diagnostic));
-        Assert.All(result.Centers, point =>
-        {
-            Assert.InRange(point.X, tiny.Left + Half - Tolerance, tiny.Right - Half + Tolerance);
-            Assert.InRange(point.Y, tiny.Top + Half - Tolerance, tiny.Bottom - Half + Tolerance);
-        });
+    }
+
+    [Fact]
+    public void Compute_SingleItem_IsPlacedOrDiagnosed()
+    {
+        var area = new Rect(0, 0, 180, 180);
+        var ballCenter = new Point(90, 90);
+
+        RadialLayoutResult result = RadialLayout.Compute(ballCenter, area, 1);
+
+        Assert.Single(result.Centers);
+        AssertValid(result.Centers, ballCenter, area);
+        Assert.True(result.AllPlaced, result.Diagnostic);
+        Assert.NotEqual(RadialLayoutMode.Partial, result.Mode);
+    }
+
+    [Fact]
+    public void ChooseFallbackCenter_PrefersFirstValidExistingCenter()
+    {
+        var area = new Rect(0, 0, 180, 180);
+        var ballCenter = new Point(90, 90);
+        RadialLayoutResult layout = RadialLayout.Compute(ballCenter, area, 9);
+        Assert.NotEmpty(layout.Centers);
+
+        Point? result = RadialLayout.ChooseFallbackCenter(
+            ballCenter, area, CircleSize, MinBallDistance, layout.Centers, out string diagnostic);
+
+        Assert.True(result.HasValue);
+        Assert.Equal(layout.Centers[0], result!.Value);
+        Assert.StartsWith("preferred", diagnostic);
+        AssertFallbackValid(result.Value, ballCenter, area);
+    }
+
+    [Fact]
+    public void ChooseFallbackCenter_InvalidPreferred_SearchesDiagonals()
+    {
+        var area = new Rect(0, 0, 180, 180);
+        var ballCenter = new Point(90, 90);
+        var invalidPreferred = new[] { ballCenter };
+
+        Point? result = RadialLayout.ChooseFallbackCenter(
+            ballCenter, area, CircleSize, MinBallDistance, invalidPreferred, out string diagnostic);
+
+        Assert.True(result.HasValue, diagnostic);
+        Assert.NotEqual(ballCenter, result!.Value);
+        AssertFallbackValid(result.Value, ballCenter, area);
+    }
+
+    [Theory]
+    [InlineData(40, 20)]
+    [InlineData(80, 40)]
+    public void ChooseFallbackCenter_NoRoom_ReturnsNull(double size, double expectedBall)
+    {
+        var area = new Rect(0, 0, size, size);
+        var ballCenter = new Point(expectedBall, expectedBall);
+
+        Point? result = RadialLayout.ChooseFallbackCenter(
+            ballCenter, area, CircleSize, MinBallDistance, null, out string diagnostic);
+
+        Assert.Null(result);
+        Assert.False(string.IsNullOrWhiteSpace(diagnostic));
+    }
+
+    private static void AssertFallbackValid(Point point, Point ballCenter, Rect workArea)
+    {
+        Assert.InRange(
+            point.X,
+            workArea.Left + Half - Tolerance,
+            workArea.Right - Half + Tolerance);
+        Assert.InRange(
+            point.Y,
+            workArea.Top + Half - Tolerance,
+            workArea.Bottom - Half + Tolerance);
+        Assert.True(
+            (point - ballCenter).Length >= MinBallDistance - Tolerance,
+            $"fallback {point} is too close to ball {ballCenter}");
     }
 
     private static void AssertValid(IReadOnlyList<Point> centers, Point ballCenter, Rect workArea)

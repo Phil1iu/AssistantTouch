@@ -1,6 +1,6 @@
 # AssistantTouch
 
-Windows 桌面**极简白色悬浮球**（骨架阶段）。
+Windows 桌面**磨砂玻璃悬浮球**：单击展开边缘自适应的径向快捷菜单（可自定义应用快捷启动）。
 
 ## 技术栈
 - C# / WPF / .NET 8（`global.json` 已锁定 SDK 8.0.204）
