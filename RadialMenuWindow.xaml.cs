@@ -99,61 +99,26 @@ public partial class RadialMenuWindow : Window
         Point ballCenter = PointFromScreen(_ballCenterScreen);
         Rect workArea = GetWorkAreaClientRect(_ballCenterScreen);
 
-        // 位置始终按球心计算（不再钳环心）；槽位中心在工作区外或离球心 <70px 时跳过。
-        // 边缘处会隐藏部分槽位，但保证小圆不与大球重叠、且可见圆完整落在工作区内。
-        var positions = new Point[total];
-        var visible = new bool[total];
+        // 几何全部交给纯函数：中部保持旧整圆；贴边/贴角自动收拢为单弧或内外双弧，
+        // 保证所有快捷项 +「+」都在当前显示器工作区内、互不重叠且不压大球。
+        RadialLayoutResult layout = RadialLayout.Compute(
+            ballCenter,
+            workArea,
+            total,
+            CircleSize,
+            RingRadius,
+            MinDistanceFromBall);
 
-        for (int i = 0; i < total; i++)
+        for (int i = 0; i < shortcutCount && i < layout.Centers.Count; i++)
         {
-            double angle = -Math.PI / 2 + 2 * Math.PI * i / total;
-            positions[i] = new Point(
-                ballCenter.X + RingRadius * Math.Cos(angle),
-                ballCenter.Y + RingRadius * Math.Sin(angle));
-            visible[i] = IsSlotVisible(positions[i], ballCenter, workArea);
+            AddCircle(CreateShortcutCircle(_store.Shortcuts[i]), layout.Centers[i]);
         }
 
-        // 「+」优先用自己的槽位；被跳过时移到最近的可见槽位（占用该槽，原快捷项隐藏）。
-        int plusSlot = shortcutCount;
-        if (!visible[plusSlot])
-        {
-            int nearestSlot = -1;
-            double nearestDistance = double.MaxValue;
-
-            for (int i = 0; i < shortcutCount; i++)
-            {
-                if (!visible[i])
-                {
-                    continue;
-                }
-
-                double distance = (positions[i] - positions[plusSlot]).Length;
-                if (distance < nearestDistance)
-                {
-                    nearestDistance = distance;
-                    nearestSlot = i;
-                }
-            }
-
-            if (nearestSlot >= 0)
-            {
-                plusSlot = nearestSlot;
-            }
-        }
-
-        for (int i = 0; i < shortcutCount; i++)
-        {
-            if (!visible[i] || i == plusSlot)
-            {
-                continue;
-            }
-
-            AddCircle(CreateShortcutCircle(_store.Shortcuts[i]), positions[i]);
-        }
-
-        Point plusPosition = visible[plusSlot]
-            ? positions[plusSlot]
-            : FindFallbackPlusPosition(ballCenter, workArea);
+        // 极端小工作区下几何可能放不下全部槽位（layout.AllPlaced=false）：
+        // 仍把「+」画在工作区内的兜底位置，避免无法添加快捷项，也绝不抛异常。
+        Point plusPosition = layout.Centers.Count >= total
+            ? layout.Centers[shortcutCount]
+            : GetFallbackPlusPosition(ballCenter, workArea);
         AddCircle(CreatePlusCircle(), plusPosition);
     }
 
@@ -164,37 +129,44 @@ public partial class RadialMenuWindow : Window
         RingCanvas.Children.Add(circle);
     }
 
-    private static bool IsSlotVisible(Point center, Point ballCenter, Rect workArea)
+    /// <summary>
+    /// 布局失败（工作区小于两圈）时「+」的兜底位置：钳进工作区；若离球太近则往内侧让开。
+    /// 仅用于诊断性极端场景，不参与常规布局。
+    /// </summary>
+    private static Point GetFallbackPlusPosition(Point ballCenter, Rect workArea)
     {
-        double distanceFromBall = (center - ballCenter).Length;
-        if (distanceFromBall < MinDistanceFromBall)
+        double half = CircleSize / 2;
+        double left = workArea.Left + half;
+        double right = workArea.Right - half;
+        double top = workArea.Top + half;
+        double bottom = workArea.Bottom - half;
+
+        if (right < left || bottom < top)
         {
-            return false;
+            return new Point(workArea.Left + workArea.Width / 2, workArea.Top + workArea.Height / 2);
         }
 
-        return center.X - CircleSize / 2 >= workArea.Left &&
-               center.X + CircleSize / 2 <= workArea.Right &&
-               center.Y - CircleSize / 2 >= workArea.Top &&
-               center.Y + CircleSize / 2 <= workArea.Bottom;
-    }
+        var candidate = new Point(
+            Math.Clamp(ballCenter.X, left, right),
+            Math.Clamp(ballCenter.Y, top, bottom));
 
-    /// <summary>所有槽位都不可见时（极小工作区）的兜底：尝试 8 个方向，最后退回工作区中心。</summary>
-    private static Point FindFallbackPlusPosition(Point ballCenter, Rect workArea)
-    {
-        for (int i = 0; i < 8; i++)
+        if ((candidate - ballCenter).Length >= MinDistanceFromBall)
         {
-            double angle = -Math.PI / 2 + i * Math.PI / 4;
-            var candidate = new Point(
-                ballCenter.X + RingRadius * Math.Cos(angle),
-                ballCenter.Y + RingRadius * Math.Sin(angle));
+            return candidate;
+        }
 
-            if (IsSlotVisible(candidate, ballCenter, workArea))
+        // 优先向下、向上、向右、向左让开一个最小距离，取第一个仍在工作区内的位置。
+        foreach ((double dx, double dy) in new[] { (0.0, MinDistanceFromBall), (0.0, -MinDistanceFromBall),
+                     (MinDistanceFromBall, 0.0), (-MinDistanceFromBall, 0.0) })
+        {
+            var shifted = new Point(candidate.X + dx, candidate.Y + dy);
+            if (shifted.X >= left && shifted.X <= right && shifted.Y >= top && shifted.Y <= bottom)
             {
-                return candidate;
+                return shifted;
             }
         }
 
-        return new Point(workArea.Left + workArea.Width / 2, workArea.Top + workArea.Height / 2);
+        return candidate;
     }
 
     private Rect GetWorkAreaClientRect(Point screenPoint)
