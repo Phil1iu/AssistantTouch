@@ -9,7 +9,9 @@
         ShowInTaskbar="False"
         ResizeMode="NoResize"
         WindowStartupLocation="Manual"
-        Focusable="True">
+        Focusable="True"
+        AutomationProperties.Name="快捷菜单"
+        AutomationProperties.HelpText="方向键选择，Enter 执行，Esc 关闭">
 
     <!-- 全屏透明通道：点非圆区域关闭；圆由代码添加到 Canvas。 -->
     <Canvas x:Name="RingCanvas"

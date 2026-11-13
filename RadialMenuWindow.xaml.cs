@@ -429,6 +429,9 @@ public partial class RadialMenuWindow : Window
     {
         RadialCircle circle = CreateCircleBase(shortcut.Name, CreateCircleContent(shortcut), index, RadialSlotKind.Shortcut);
 
+        AutomationProperties.SetAutomationId(circle, $"shortcut-{index}");
+        AutomationProperties.SetHelpText(circle, "按 Enter 执行；右键更多操作");
+
         // 左键：未拖动（<6px）执行动作；拖动到另一小圆中心半径内交换顺序。
         circle.MouseLeftButtonDown += (_, args) => BeginShortcutDrag(shortcut, circle, args);
         circle.MouseMove += (_, args) => ContinueShortcutDrag(args);
@@ -501,9 +504,19 @@ public partial class RadialMenuWindow : Window
 
         if (!wasDragging)
         {
-            // 未超过阈值：保持原有「点击执行并关闭」行为。
-            ShortcutActions.Execute(dragged);
-            Close();
+            // 未超过阈值：等价「未拖动的左键单击」，走统一激活入口（UIA Invoke 同一条路径）。
+            int index = _circleSlots.FindIndex(slot => ReferenceEquals(slot.Shortcut, dragged));
+            if (index >= 0)
+            {
+                ActivateSlot(index, ActivationSource.Mouse);
+            }
+            else
+            {
+                // 兜底：槽位已重建到别处（理论不可达），保持旧行为。
+                ShortcutActions.Execute(dragged);
+                Close();
+            }
+
             return;
         }
 
@@ -570,10 +583,13 @@ public partial class RadialMenuWindow : Window
     {
         RadialCircle circle = CreateCircleBase("添加快捷启动", CreateLabel("+", 18), index, RadialSlotKind.Plus);
 
+        AutomationProperties.SetAutomationId(circle, "add-shortcut");
+        AutomationProperties.SetHelpText(circle, "添加系统快捷或应用程序");
+
         circle.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
-            ShowAddShortcutMenu(circle, PlacementMode.Bottom, includeRestoreDefaults: false);
+            ActivateSlot(index, ActivationSource.Mouse);
         };
 
         circle.MouseRightButtonUp += (_, args) =>
