@@ -131,12 +131,7 @@ public partial class RadialMenuWindow : Window
     {
         var menu = new ContextMenu();
         var resetItem = new MenuItem { Header = "恢复默认" };
-        resetItem.Click += (_, _) =>
-        {
-            _store.ResetToDefaults();
-            RebuildRing();
-            FocusRingCanvas();
-        };
+        resetItem.Click += (_, _) => RestoreDefaultsWithConfirmation();
 
         menu.Items.Add(resetItem);
         menu.PlacementTarget = target;
@@ -543,12 +538,7 @@ public partial class RadialMenuWindow : Window
         changeItem.Click += (_, _) => ReplaceShortcut(shortcut);
 
         var resetItem = new MenuItem { Header = "恢复默认" };
-        resetItem.Click += (_, _) =>
-        {
-            _store.ResetToDefaults();
-            RebuildRing();
-            FocusRingCanvas();
-        };
+        resetItem.Click += (_, _) => RestoreDefaultsWithConfirmation();
 
         menu.Items.Add(renameItem);
         menu.Items.Add(moveCounterClockwiseItem);
@@ -577,6 +567,28 @@ public partial class RadialMenuWindow : Window
             {
                 _store.Rename(shortcut, dialog.ResultName);
             }
+        }
+        finally
+        {
+            ShowRadialAfterDialog();
+        }
+    }
+
+    /// <summary>
+    /// 两个「恢复默认」入口共用的二次确认：先关环、弹确认框（默认焦点在取消），
+    /// 只有点「恢复」才清除自定义并保存；取消/Esc/关闭不改数据。始终弹确认（即使已是默认）。
+    /// </summary>
+    private void RestoreDefaultsWithConfirmation()
+    {
+        HideRadialForDialog();
+        try
+        {
+            var dialog = new ConfirmRestoreDefaultsWindow
+            {
+                Owner = _ownerWindow
+            };
+
+            RestoreDefaultsConfirmation.Apply(dialog.ShowDialog(), _store.ResetToDefaults);
         }
         finally
         {

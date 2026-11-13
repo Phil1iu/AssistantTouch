@@ -1,0 +1,57 @@
+<Window x:Class="AssistantTouch.ConfirmRestoreDefaultsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="恢复默认快捷方式"
+        Width="360"
+        SizeToContent="Height"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False"
+        Topmost="True"
+        Focusable="True">
+
+    <!-- 白底细边圆角确认框；默认焦点在「取消」，Esc 取消。 -->
+    <Border Background="#FFFFFFFF"
+            BorderBrush="#1F000000"
+            BorderThickness="1"
+            CornerRadius="6"
+            Padding="18">
+        <StackPanel>
+            <TextBlock Text="恢复默认快捷方式"
+                       FontSize="14"
+                       FontWeight="SemiBold"
+                       Foreground="#1A1A1A"
+                       Margin="0,0,0,10" />
+
+            <TextBlock Text="将恢复 6 个默认快捷方式，当前的自定义设置会被清除。是否继续？"
+                       TextWrapping="Wrap"
+                       FontSize="12"
+                       Foreground="#1A1A1A"
+                       LineHeight="18" />
+
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Right"
+                        Margin="0,16,0,0">
+                <Button Content="恢复"
+                        Width="80"
+                        Height="28"
+                        Margin="0,0,8,0"
+                        Background="#F5F5F5"
+                        Foreground="#1A1A1A"
+                        BorderBrush="#1F000000"
+                        Click="OnConfirmClick" />
+                <Button x:Name="CancelButton"
+                        Content="取消"
+                        IsCancel="True"
+                        Width="80"
+                        Height="28"
+                        Background="#0078D4"
+                        Foreground="#FFFFFFFF"
+                        BorderBrush="#0069BD" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</Window>
