@@ -120,4 +120,19 @@ public class ShortcutStoreRollingBackupTests
         Assert.Single(fileSystem.BackupPaths());
         Assert.Equal(3, fileSystem.RollingBackupPaths().Length);
     }
+
+    [Fact]
+    public void ComposeRollingBackupPath_UsesGuidSuffixOnlyOnCollision()
+    {
+        string normal = ShortcutStore.ComposeRollingBackupPath(@"C:\fake", "20260101-120000-123", 7);
+        Assert.Equal(@"C:\fake\shortcuts.bak-20260101-120000-123-0007.json", normal);
+
+        var guid = Guid.Parse("0123456789abcdef0123456789abcdef");
+        string fallback = ShortcutStore.ComposeRollingBackupPath(@"C:\fake", "20260101-120000-123", 7, guid);
+        Assert.Equal(
+            @"C:\fake\shortcuts.bak-20260101-120000-123-0007-0123456789abcdef0123456789abcdef.json",
+            fallback);
+        // P3-C4：碰撞兜底不再是 `-NNNN-1` 这类不合规的序号后缀。
+        Assert.DoesNotContain("-0007-1.", fallback);
+    }
 }

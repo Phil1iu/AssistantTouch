@@ -689,29 +689,29 @@ internal sealed class ShortcutStore
     {
         string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
         int sequence = Interlocked.Increment(ref _rollingBackupSequence);
-        string candidate = Path.Combine(
-            _directoryPath,
-            $"{RollingBackupPrefix}{stamp}-{sequence:D4}.json");
+        string candidate = ComposeRollingBackupPath(_directoryPath, stamp, sequence);
 
         if (!_fileSystem.FileExists(candidate))
         {
             return candidate;
         }
 
-        for (int index = 1; index < 1000; index++)
-        {
-            string alternate = Path.Combine(
-                _directoryPath,
-                $"{RollingBackupPrefix}{stamp}-{sequence:D4}-{index}.json");
-            if (!_fileSystem.FileExists(alternate))
-            {
-                return alternate;
-            }
-        }
+        // 极端同毫秒碰撞：直接加 GUID 后缀，不再产生 `-NNNN-1` 这类不合规名字。
+        return ComposeRollingBackupPath(_directoryPath, stamp, sequence, Guid.NewGuid());
+    }
 
-        return Path.Combine(
-            _directoryPath,
-            $"{RollingBackupPrefix}{stamp}-{sequence:D4}-{Guid.NewGuid():N}.json");
+    /// <summary>
+    /// 滚动备份文件名（纯函数，internal 便于单测）：
+    /// <c>shortcuts.bak-&lt;stamp&gt;-&lt;NNNN&gt;.json</c>，碰撞时追加 <c>-&lt;guid:N&gt;</c>。
+    /// </summary>
+    internal static string ComposeRollingBackupPath(
+        string directory,
+        string stamp,
+        int sequence,
+        Guid? collisionGuid = null)
+    {
+        string suffix = collisionGuid is Guid guid ? $"-{guid:N}" : string.Empty;
+        return Path.Combine(directory, $"{RollingBackupPrefix}{stamp}-{sequence:D4}{suffix}.json");
     }
 
     /// <summary>
