@@ -29,9 +29,21 @@ internal sealed class ShortcutStore
 
     private readonly List<ShortcutDefinition> _shortcuts;
 
-    private ShortcutStore(List<ShortcutDefinition> shortcuts)
+    /// <summary>仅测试用：捕获 Save 的内容，避免写真实 %LOCALAPPDATA%。</summary>
+    private readonly Action<IReadOnlyList<ShortcutDefinition>>? _saveHook;
+
+    private ShortcutStore(List<ShortcutDefinition> shortcuts, Action<IReadOnlyList<ShortcutDefinition>>? saveHook = null)
     {
         _shortcuts = shortcuts;
+        _saveHook = saveHook;
+    }
+
+    /// <summary>仅测试用：构造内存存储并可选捕获每次 Save 的内容。</summary>
+    internal static ShortcutStore CreateForTests(
+        IEnumerable<ShortcutDefinition> shortcuts,
+        Action<IReadOnlyList<ShortcutDefinition>>? saveHook = null)
+    {
+        return new ShortcutStore(shortcuts.ToList(), saveHook);
     }
 
     /// <summary>快捷方式文件的完整路径。</summary>
@@ -160,6 +172,76 @@ internal sealed class ShortcutStore
         }
 
         _shortcuts[index] = newShortcut;
+        Save();
+        return true;
+    }
+
+    public int IndexOf(ShortcutDefinition shortcut) => _shortcuts.IndexOf(shortcut);
+
+    /// <summary>
+    /// 按 offset 上移（-1）/下移（+1）。越界、offset 为 0 或找不到时返回 false；成功立即保存。
+    /// </summary>
+    public bool Move(ShortcutDefinition shortcut, int offset)
+    {
+        int index = _shortcuts.IndexOf(shortcut);
+        if (index < 0 || offset == 0)
+        {
+            return false;
+        }
+
+        int target = index + offset;
+        if (target < 0 || target >= _shortcuts.Count)
+        {
+            return false;
+        }
+
+        _shortcuts.RemoveAt(index);
+        _shortcuts.Insert(target, shortcut);
+        Save();
+        return true;
+    }
+
+    /// <summary>交换两个快捷项的位置；找不到、同一个对象时返回 false；成功立即保存。</summary>
+    public bool Swap(ShortcutDefinition first, ShortcutDefinition second)
+    {
+        int firstIndex = _shortcuts.IndexOf(first);
+        int secondIndex = _shortcuts.IndexOf(second);
+        if (firstIndex < 0 || secondIndex < 0 || firstIndex == secondIndex)
+        {
+            return false;
+        }
+
+        (_shortcuts[firstIndex], _shortcuts[secondIndex]) = (_shortcuts[secondIndex], _shortcuts[firstIndex]);
+        Save();
+        return true;
+    }
+
+    /// <summary>
+    /// 重命名：去首尾空格、非空、长度 ≤20。成功（且名称确实变化）时立即保存并返回 true。
+    /// </summary>
+    public bool Rename(ShortcutDefinition shortcut, string? newName)
+    {
+        int index = _shortcuts.IndexOf(shortcut);
+        if (index < 0 || !ShortcutName.TryNormalize(newName, out string normalized, out _))
+        {
+            return false;
+        }
+
+        ShortcutDefinition current = _shortcuts[index];
+        if (string.Equals(current.Name, normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // Name 是 init-only：保留 Kind/Action/Path，创建新实例替换。
+        _shortcuts[index] = new ShortcutDefinition
+        {
+            Kind = current.Kind,
+            Action = current.Action,
+            Path = current.Path,
+            Name = normalized
+        };
+
         Save();
         return true;
     }
@@ -326,9 +408,15 @@ internal sealed class ShortcutStore
         }
     }
 
-    /// <summary>保存（临时文件 + 覆盖移动）；失败静默忽略。</summary>
+    /// <summary>保存（临时文件 + 覆盖移动）；失败静默忽略。测试钩子存在时不写磁盘。</summary>
     public void Save()
     {
+        if (_saveHook is not null)
+        {
+            _saveHook(_shortcuts);
+            return;
+        }
+
         string tempPath = $"{FilePath}.{Environment.ProcessId}.tmp";
 
         try

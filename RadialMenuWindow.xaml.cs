@@ -18,10 +18,20 @@ public partial class RadialMenuWindow : Window
     private const double CircleSize = 44;
     private const double RingRadius = 95;
     private const double MinDistanceFromBall = 70;
+    private const double DragStartThreshold = 6;
 
     private readonly ShortcutStore _store;
     private readonly Point _ballCenterScreen;
     private readonly Window _ownerWindow;
+    private readonly List<CircleSlot> _circleSlots = new();
+
+    private Point _dragStartPoint;
+    private ShortcutDefinition? _dragShortcut;
+    private Border? _dragCircle;
+    private bool _dragStarted;
+
+    /// <summary>当前环上实际渲染的圆（快捷项在前、「+」在末位；Partial 时可能只有「+」）。</summary>
+    private sealed record CircleSlot(Border Circle, ShortcutDefinition? Shortcut, Point Center);
 
     internal RadialMenuWindow(ShortcutStore store, Point ballCenterScreen, Window owner)
     {
@@ -82,6 +92,7 @@ public partial class RadialMenuWindow : Window
         {
             _store.ResetToDefaults();
             RebuildRing();
+            FocusRingCanvas();
         };
 
         menu.Items.Add(resetItem);
@@ -92,6 +103,7 @@ public partial class RadialMenuWindow : Window
     private void RebuildRing()
     {
         RingCanvas.Children.Clear();
+        _circleSlots.Clear();
 
         int shortcutCount = _store.Shortcuts.Count;
         int total = shortcutCount + 1; // + 「+」圆
@@ -114,7 +126,11 @@ public partial class RadialMenuWindow : Window
         {
             for (int i = 0; i < shortcutCount && i < layout.Centers.Count; i++)
             {
-                AddCircle(CreateShortcutCircle(_store.Shortcuts[i]), layout.Centers[i]);
+                ShortcutDefinition shortcut = _store.Shortcuts[i];
+                Point center = layout.Centers[i];
+                Border circle = CreateShortcutCircle(shortcut);
+                AddCircle(circle, center);
+                _circleSlots.Add(new CircleSlot(circle, shortcut, center));
             }
         }
 
@@ -131,7 +147,9 @@ public partial class RadialMenuWindow : Window
         // 兜底纯函数确认无合法位置（null）时不画「+」，绝不让它压在球心上。
         if (plusPosition is { } plusPoint)
         {
-            AddCircle(CreatePlusCircle(), plusPoint);
+            Border plusCircle = CreatePlusCircle();
+            AddCircle(plusCircle, plusPoint);
+            _circleSlots.Add(new CircleSlot(plusCircle, null, plusPoint));
         }
     }
 
@@ -157,12 +175,11 @@ public partial class RadialMenuWindow : Window
     {
         Border circle = CreateCircleBase(shortcut.Name, CreateCircleContent(shortcut));
 
-        circle.MouseLeftButtonUp += (_, args) =>
-        {
-            args.Handled = true;
-            ShortcutActions.Execute(shortcut);
-            Close();
-        };
+        // 左键：未拖动（<6px）执行动作；拖动到另一小圆中心半径内交换顺序。
+        circle.MouseLeftButtonDown += (_, args) => BeginShortcutDrag(shortcut, circle, args);
+        circle.MouseMove += (_, args) => ContinueShortcutDrag(args);
+        circle.MouseLeftButtonUp += (_, args) => EndShortcutDrag(circle, args);
+        circle.LostMouseCapture += (_, _) => CancelShortcutDrag(releaseCapture: false);
 
         circle.MouseRightButtonUp += (_, args) =>
         {
@@ -171,6 +188,114 @@ public partial class RadialMenuWindow : Window
         };
 
         return circle;
+    }
+
+    private void BeginShortcutDrag(ShortcutDefinition shortcut, Border circle, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left)
+        {
+            return;
+        }
+
+        CancelShortcutDrag();
+        _dragShortcut = shortcut;
+        _dragCircle = circle;
+        _dragStartPoint = e.GetPosition(RingCanvas);
+        _dragStarted = false;
+        circle.CaptureMouse();
+        e.Handled = true;
+    }
+
+    private void ContinueShortcutDrag(MouseEventArgs e)
+    {
+        if (_dragShortcut is null || _dragCircle is null)
+        {
+            return;
+        }
+
+        if (!_dragStarted)
+        {
+            if ((e.GetPosition(RingCanvas) - _dragStartPoint).Length < DragStartThreshold)
+            {
+                return;
+            }
+
+            _dragStarted = true;
+            _dragCircle.Opacity = 0.7;
+        }
+
+        e.Handled = true;
+    }
+
+    private void EndShortcutDrag(Border circle, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || _dragShortcut is null)
+        {
+            return;
+        }
+
+        bool wasDragging = _dragStarted;
+        ShortcutDefinition dragged = _dragShortcut;
+        Point dropPoint = e.GetPosition(RingCanvas);
+
+        CancelShortcutDrag();
+
+        e.Handled = true;
+
+        if (!wasDragging)
+        {
+            // 未超过阈值：保持原有「点击执行并关闭」行为。
+            ShortcutActions.Execute(dragged);
+            Close();
+            return;
+        }
+
+        // 拖拽态：不执行动作；落在另一小圆中心半径内则交换，否则取消。
+        ShortcutDefinition? target = FindDropTarget(dropPoint, dragged);
+        if (target is not null && _store.Swap(dragged, target))
+        {
+            RebuildRing();
+            FocusRingCanvas();
+        }
+    }
+
+    private ShortcutDefinition? FindDropTarget(Point point, ShortcutDefinition dragged)
+    {
+        ShortcutDefinition? best = null;
+        double bestDistance = CircleSize / 2;
+
+        foreach (CircleSlot slot in _circleSlots)
+        {
+            if (slot.Shortcut is null || ReferenceEquals(slot.Shortcut, dragged))
+            {
+                continue;
+            }
+
+            double distance = (slot.Center - point).Length;
+            if (distance <= bestDistance)
+            {
+                bestDistance = distance;
+                best = slot.Shortcut;
+            }
+        }
+
+        return best;
+    }
+
+    private void CancelShortcutDrag(bool releaseCapture = true)
+    {
+        if (_dragCircle is not null)
+        {
+            _dragCircle.Opacity = 1.0;
+            if (releaseCapture && _dragCircle.IsMouseCaptured)
+            {
+                _dragCircle.ReleaseMouseCapture();
+            }
+        }
+
+        _dragShortcut = null;
+        _dragCircle = null;
+        _dragStarted = false;
     }
 
     private Border CreatePlusCircle()
@@ -283,12 +408,45 @@ public partial class RadialMenuWindow : Window
     private void ShowCircleMenu(Border circle, ShortcutDefinition shortcut)
     {
         var menu = new ContextMenu();
+        int index = _store.IndexOf(shortcut);
+
+        var renameItem = new MenuItem { Header = "重命名…" };
+        renameItem.Click += (_, _) => RenameShortcut(shortcut);
+
+        var moveUpItem = new MenuItem
+        {
+            Header = "上移",
+            IsEnabled = index > 0
+        };
+        moveUpItem.Click += (_, _) =>
+        {
+            if (_store.Move(shortcut, -1))
+            {
+                RebuildRing();
+                FocusRingCanvas();
+            }
+        };
+
+        var moveDownItem = new MenuItem
+        {
+            Header = "下移",
+            IsEnabled = index >= 0 && index < _store.Shortcuts.Count - 1
+        };
+        moveDownItem.Click += (_, _) =>
+        {
+            if (_store.Move(shortcut, 1))
+            {
+                RebuildRing();
+                FocusRingCanvas();
+            }
+        };
 
         var deleteItem = new MenuItem { Header = "删除" };
         deleteItem.Click += (_, _) =>
         {
             _store.Remove(shortcut);
             RebuildRing();
+            FocusRingCanvas();
         };
 
         var changeItem = new MenuItem { Header = "更换程序" };
@@ -299,14 +457,47 @@ public partial class RadialMenuWindow : Window
         {
             _store.ResetToDefaults();
             RebuildRing();
+            FocusRingCanvas();
         };
 
+        menu.Items.Add(renameItem);
+        menu.Items.Add(moveUpItem);
+        menu.Items.Add(moveDownItem);
+        menu.Items.Add(new Separator());
         menu.Items.Add(deleteItem);
         menu.Items.Add(changeItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(resetItem);
+
         menu.PlacementTarget = circle;
         menu.IsOpen = true;
+    }
+
+    private void RenameShortcut(ShortcutDefinition shortcut)
+    {
+        // 沿用添加流程：先隐藏全屏置顶的环，再以悬浮球主窗口为 Owner 弹对话框。
+        HideRadialForDialog();
+        try
+        {
+            var dialog = new RenameShortcutWindow(shortcut.Name)
+            {
+                Owner = _ownerWindow
+            };
+            if (dialog.ShowDialog() == true)
+            {
+                _store.Rename(shortcut, dialog.ResultName);
+            }
+        }
+        finally
+        {
+            ShowRadialAfterDialog();
+        }
+    }
+
+    private void FocusRingCanvas()
+    {
+        Activate();
+        RingCanvas.Focus();
     }
 
     private void ReplaceShortcut(ShortcutDefinition shortcut)
@@ -410,21 +601,46 @@ public partial class RadialMenuWindow : Window
 
     private static string GetShortLabel(ShortcutDefinition shortcut)
     {
+        string name = shortcut.Name.Trim();
+
         if (shortcut.Kind == ShortcutKind.App)
         {
-            string name = Path.GetFileNameWithoutExtension(shortcut.Name);
-            return string.IsNullOrWhiteSpace(name) ? "应用" : name[..Math.Min(2, name.Length)];
+            string fileName = Path.GetFileNameWithoutExtension(name);
+            return string.IsNullOrWhiteSpace(fileName) ? "应用" : Shorten(fileName);
         }
 
-        return shortcut.Action switch
+        // 默认系统名称保持原有 2 字标签（与历史 UI/自动化断言一致）；
+        // 用户重命名后改用新名的前 2 个字符，使文字圆立即反映新名。
+        string defaultName = shortcut.Action switch
         {
-            "showDesktop" => "桌面",
+            "showDesktop" => "显示桌面",
             "screenshot" => "截图",
-            "taskManager" => "任务",
+            "taskManager" => "任务管理器",
             "settings" => "设置",
-            "explorer" => "文件",
-            "lock" => "锁定",
-            _ => "快捷"
+            "explorer" => "文件资源管理器",
+            "lock" => "锁定电脑",
+            _ => string.Empty
         };
+
+        if (string.Equals(name, defaultName, StringComparison.Ordinal))
+        {
+            return shortcut.Action switch
+            {
+                "showDesktop" => "桌面",
+                "screenshot" => "截图",
+                "taskManager" => "任务",
+                "settings" => "设置",
+                "explorer" => "文件",
+                "lock" => "锁定",
+                _ => "快捷"
+            };
+        }
+
+        return Shorten(string.IsNullOrWhiteSpace(name) ? "快捷" : name);
+    }
+
+    private static string Shorten(string name)
+    {
+        return name[..Math.Min(2, name.Length)];
     }
 }
