@@ -13,15 +13,8 @@ internal sealed class ShortcutStore
 {
     public const int MaxShortcuts = 8;
 
-    private static readonly HashSet<string> KnownSystemActions = new(StringComparer.Ordinal)
-    {
-        "showDesktop",
-        "screenshot",
-        "taskManager",
-        "settings",
-        "explorer",
-        "lock"
-    };
+    private static readonly HashSet<string> KnownSystemActions =
+        new(SystemShortcutCatalog.All.Select(entry => entry.Action), StringComparer.Ordinal);
 
     private static readonly string DirectoryPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),

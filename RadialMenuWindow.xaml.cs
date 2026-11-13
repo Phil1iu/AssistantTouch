@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -100,7 +101,7 @@ public partial class RadialMenuWindow : Window
         CircleSlot slot = _circleSlots[_selectedIndex];
         if (slot.Shortcut is null)
         {
-            OnAddClick();
+            ShowAddShortcutMenu(slot.Circle, PlacementMode.Bottom, includeRestoreDefaults: false);
         }
         else
         {
@@ -119,23 +120,138 @@ public partial class RadialMenuWindow : Window
 
     private void OnCanvasMouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        // 0 项（只剩「+」）时，右键环背景也能恢复默认。
-        if (_store.Shortcuts.Count == 0)
+        // 环内空白处右键：不论项数，都提供系统功能/应用程序添加与「恢复默认…」。
+        ShowAddShortcutMenu(RingCanvas, PlacementMode.MousePoint, includeRestoreDefaults: true);
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// 「+」左键/键盘（includeRestoreDefaults=false）与环背景/「+」右键（true）共用的添加菜单。
+    /// 已添加的系统项置灰并标「已添加」；满 8 个时全部系统项禁用并显示上限提示。
+    /// </summary>
+    private void ShowAddShortcutMenu(UIElement target, PlacementMode placement, bool includeRestoreDefaults)
+    {
+        var menu = new ContextMenu();
+        bool atLimit = _store.Shortcuts.Count >= ShortcutStore.MaxShortcuts;
+
+        if (atLimit)
         {
-            ShowRestoreDefaultsMenu(RingCanvas);
-            e.Handled = true;
+            menu.Items.Add(new MenuItem
+            {
+                Header = "已达上限（8 个）",
+                IsEnabled = false
+            });
+        }
+
+        foreach (SystemShortcut entry in SystemShortcutCatalog.All)
+        {
+            bool added = SystemShortcutCatalog.ContainsSystemAction(_store.Shortcuts, entry.Action);
+
+            var item = new MenuItem
+            {
+                Header = added ? $"{entry.Name}（已添加）" : entry.Name,
+                IsEnabled = !atLimit && !added
+            };
+
+            if (atLimit)
+            {
+                item.ToolTip = "已达上限（8 个）";
+                ToolTipService.SetShowOnDisabled(item, true);
+            }
+            else if (added)
+            {
+                item.ToolTip = "已添加";
+                ToolTipService.SetShowOnDisabled(item, true);
+            }
+
+            SystemShortcut captured = entry;
+            item.Click += (_, _) => AddSystemShortcut(captured);
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+
+        var addApplicationItem = new MenuItem { Header = "添加应用程序…" };
+        addApplicationItem.Click += (_, _) => OnAddApplicationClick();
+        menu.Items.Add(addApplicationItem);
+
+        if (includeRestoreDefaults)
+        {
+            menu.Items.Add(new Separator());
+            var restoreItem = new MenuItem { Header = "恢复默认…" };
+            restoreItem.Click += (_, _) => RestoreDefaultsWithConfirmation();
+            menu.Items.Add(restoreItem);
+        }
+
+        // 菜单关闭后把键盘焦点交还环；若环已隐藏（如打开了文件对话框），不要抢焦点。
+        menu.Closed += (_, _) =>
+        {
+            if (IsVisible)
+            {
+                FocusRingCanvas();
+            }
+        };
+
+        menu.PlacementTarget = target;
+        menu.Placement = placement;
+        menu.IsOpen = true;
+    }
+
+    private void AddSystemShortcut(SystemShortcut entry)
+    {
+        SystemShortcutAddDecision decision = SystemShortcutCatalog.EvaluateAdd(_store.Shortcuts, entry.Action);
+
+        switch (decision)
+        {
+            case SystemShortcutAddDecision.Allowed:
+                var shortcut = new ShortcutDefinition
+                {
+                    Kind = ShortcutKind.System,
+                    Action = entry.Action,
+                    Name = entry.Name
+                };
+
+                if (_store.TryAdd(shortcut))
+                {
+                    // 环保持打开，便于连续添加；重排后焦点回到环上。
+                    RebuildRing();
+                    FocusRingCanvas();
+                }
+                else
+                {
+                    ShowAddLimitMessage();
+                }
+
+                break;
+
+            case SystemShortcutAddDecision.AlreadyAdded:
+                MessageBox.Show(
+                    this,
+                    "该快捷方式已添加",
+                    "AssistantTouch",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                FocusRingCanvas();
+                break;
+
+            case SystemShortcutAddDecision.LimitReached:
+                ShowAddLimitMessage();
+                break;
+
+            case SystemShortcutAddDecision.UnknownAction:
+            default:
+                break;
         }
     }
 
-    private void ShowRestoreDefaultsMenu(UIElement target)
+    private void ShowAddLimitMessage()
     {
-        var menu = new ContextMenu();
-        var resetItem = new MenuItem { Header = "恢复默认" };
-        resetItem.Click += (_, _) => RestoreDefaultsWithConfirmation();
-
-        menu.Items.Add(resetItem);
-        menu.PlacementTarget = target;
-        menu.IsOpen = true;
+        MessageBox.Show(
+            this,
+            "最多 8 个快捷启动",
+            "AssistantTouch",
+            MessageBoxButton.OK,
+            MessageBoxImage.Information);
     }
 
     private void RebuildRing()
@@ -372,17 +488,14 @@ public partial class RadialMenuWindow : Window
         circle.MouseLeftButtonUp += (_, args) =>
         {
             args.Handled = true;
-            OnAddClick();
+            ShowAddShortcutMenu(circle, PlacementMode.Bottom, includeRestoreDefaults: false);
         };
 
         circle.MouseRightButtonUp += (_, args) =>
         {
-            // 0 项时「+」也提供恢复默认（否则没有可右键的快捷圆）。
-            if (_store.Shortcuts.Count == 0)
-            {
-                args.Handled = true;
-                ShowRestoreDefaultsMenu(circle);
-            }
+            // 与环背景一致：添加系统功能/应用程序 + 恢复默认（覆盖 0 项时的旧入口）。
+            args.Handled = true;
+            ShowAddShortcutMenu(circle, PlacementMode.Bottom, includeRestoreDefaults: true);
         };
 
         return circle;
@@ -628,7 +741,7 @@ public partial class RadialMenuWindow : Window
         }
     }
 
-    private void OnAddClick()
+    private void OnAddApplicationClick()
     {
         if (_store.Shortcuts.Count >= ShortcutStore.MaxShortcuts)
         {

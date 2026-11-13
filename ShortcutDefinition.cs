@@ -23,22 +23,9 @@ internal sealed class ShortcutDefinition
     /// <summary>菜单/提示中显示的完整名称。</summary>
     public string Name { get; init; } = string.Empty;
 
-    /// <summary>默认 6 个系统快捷方式。</summary>
+    /// <summary>默认 6 个系统快捷方式（由 <see cref="SystemShortcutCatalog"/> 单一数据源生成）。</summary>
     public static List<ShortcutDefinition> CreateDefaults()
     {
-        return new List<ShortcutDefinition>
-        {
-            System("showDesktop", "显示桌面"),
-            System("screenshot", "截图"),
-            System("taskManager", "任务管理器"),
-            System("settings", "设置"),
-            System("explorer", "文件资源管理器"),
-            System("lock", "锁定电脑"),
-        };
-    }
-
-    private static ShortcutDefinition System(string action, string name)
-    {
-        return new ShortcutDefinition { Kind = ShortcutKind.System, Action = action, Name = name };
+        return SystemShortcutCatalog.CreateDefaults();
     }
 }
