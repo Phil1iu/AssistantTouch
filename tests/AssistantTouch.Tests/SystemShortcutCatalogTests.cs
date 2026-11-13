@@ -134,4 +134,53 @@ public class SystemShortcutCatalogTests
             SystemShortcutAddDecision.UnknownAction,
             SystemShortcutCatalog.EvaluateAdd(Apps(8), "not-a-system-action"));
     }
+
+    [Fact]
+    public void EvaluateAdd_NullEmptyAndWrongCase_ReturnUnknown()
+    {
+        List<ShortcutDefinition> list = ShortcutDefinition.CreateDefaults();
+
+        Assert.Equal(SystemShortcutAddDecision.UnknownAction, SystemShortcutCatalog.EvaluateAdd(list, null));
+        Assert.Equal(SystemShortcutAddDecision.UnknownAction, SystemShortcutCatalog.EvaluateAdd(list, string.Empty));
+        Assert.Equal(SystemShortcutAddDecision.UnknownAction, SystemShortcutCatalog.EvaluateAdd(list, "ShowDesktop"));
+        Assert.Equal(SystemShortcutAddDecision.UnknownAction, SystemShortcutCatalog.EvaluateAdd(list, "showdesktop"));
+    }
+
+    [Fact]
+    public void ContainsSystemAction_IsCaseSensitiveAndNullSafe()
+    {
+        List<ShortcutDefinition> list = ShortcutDefinition.CreateDefaults();
+
+        Assert.False(SystemShortcutCatalog.ContainsSystemAction(list, null));
+        Assert.False(SystemShortcutCatalog.ContainsSystemAction(list, "ShowDesktop"));
+        Assert.False(SystemShortcutCatalog.ContainsSystemAction(list, "showdesktop"));
+    }
+
+    [Fact]
+    public void GetDefaultName_UsesCatalogAndIsCaseSensitive()
+    {
+        Assert.Equal("显示桌面", SystemShortcutCatalog.GetDefaultName("showDesktop"));
+        Assert.Null(SystemShortcutCatalog.GetDefaultName("ShowDesktop"));
+        Assert.Null(SystemShortcutCatalog.GetDefaultName(string.Empty));
+        Assert.Null(SystemShortcutCatalog.GetDefaultName(null));
+    }
+
+    [Fact]
+    public void CreateDefaults_ReturnsIndependentLists()
+    {
+        List<ShortcutDefinition> first = ShortcutDefinition.CreateDefaults();
+        List<ShortcutDefinition> second = ShortcutDefinition.CreateDefaults();
+
+        Assert.NotSame(first, second);
+
+        first.Add(new ShortcutDefinition
+        {
+            Kind = ShortcutKind.App,
+            Path = @"C:\extra.exe",
+            Name = "extra"
+        });
+
+        Assert.Equal(7, first.Count);
+        Assert.Equal(6, second.Count);
+    }
 }

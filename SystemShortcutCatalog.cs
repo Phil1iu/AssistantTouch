@@ -46,8 +46,22 @@ internal static class SystemShortcutCatalog
         return shortcuts;
     }
 
+    /// <summary>按动作取目录中的默认显示名；未知动作返回 null。</summary>
+    public static string? GetDefaultName(string? action)
+    {
+        foreach (SystemShortcut entry in All)
+        {
+            if (string.Equals(entry.Action, action, StringComparison.Ordinal))
+            {
+                return entry.Name;
+            }
+        }
+
+        return null;
+    }
+
     /// <summary>列表中是否已有同 Action 的系统快捷项（App 项不参与）。</summary>
-    public static bool ContainsSystemAction(IReadOnlyList<ShortcutDefinition> shortcuts, string action)
+    public static bool ContainsSystemAction(IReadOnlyList<ShortcutDefinition> shortcuts, string? action)
     {
         foreach (ShortcutDefinition shortcut in shortcuts)
         {
@@ -64,7 +78,7 @@ internal static class SystemShortcutCatalog
     /// <summary>判定能否添加某系统动作；已添加优先于上限，未知动作最后判定。</summary>
     public static SystemShortcutAddDecision EvaluateAdd(
         IReadOnlyList<ShortcutDefinition> shortcuts,
-        string action)
+        string? action)
     {
         bool known = false;
         foreach (SystemShortcut entry in All)

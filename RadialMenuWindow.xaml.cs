@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Automation;
@@ -153,14 +154,15 @@ public partial class RadialMenuWindow : Window
                 IsEnabled = !atLimit && !added
             };
 
-            if (atLimit)
+            if (added)
             {
-                item.ToolTip = "已达上限（8 个）";
+                // 已添加优先于上限：即使满员也先告诉用户“已添加”。
+                item.ToolTip = "已添加";
                 ToolTipService.SetShowOnDisabled(item, true);
             }
-            else if (added)
+            else if (atLimit)
             {
-                item.ToolTip = "已添加";
+                item.ToolTip = "已达上限（8 个）";
                 ToolTipService.SetShowOnDisabled(item, true);
             }
 
@@ -225,6 +227,7 @@ public partial class RadialMenuWindow : Window
                 break;
 
             case SystemShortcutAddDecision.AlreadyAdded:
+                Debug.WriteLine($"AddSystemShortcut ignored: already added (action={entry.Action})");
                 MessageBox.Show(
                     this,
                     "该快捷方式已添加",
@@ -240,6 +243,7 @@ public partial class RadialMenuWindow : Window
 
             case SystemShortcutAddDecision.UnknownAction:
             default:
+                Debug.WriteLine($"AddSystemShortcut ignored: unknown action (action={entry.Action})");
                 break;
         }
     }
@@ -688,7 +692,8 @@ public partial class RadialMenuWindow : Window
     }
 
     /// <summary>
-    /// 两个「恢复默认」入口共用的二次确认：先关环、弹确认框（默认焦点在取消），
+    /// 三处「恢复默认」入口（小圆右键 / 「+」右键 / 环背景右键）共用的二次确认：
+    /// 先关环、弹确认框（默认焦点在取消），
     /// 只有点「恢复」才清除自定义并保存；取消/Esc/关闭不改数据。始终弹确认（即使已是默认）。
     /// </summary>
     private void RestoreDefaultsWithConfirmation()
@@ -827,20 +832,11 @@ public partial class RadialMenuWindow : Window
             return string.IsNullOrWhiteSpace(fileName) ? "应用" : Shorten(fileName);
         }
 
-        // 默认系统名称保持原有 2 字标签（与历史 UI/自动化断言一致）；
+        // 默认系统名称从目录取（单一数据源）；2 字标签表保留为 UI 常量。
         // 用户重命名后改用新名的前 2 个字符，使文字圆立即反映新名。
-        string defaultName = shortcut.Action switch
-        {
-            "showDesktop" => "显示桌面",
-            "screenshot" => "截图",
-            "taskManager" => "任务管理器",
-            "settings" => "设置",
-            "explorer" => "文件资源管理器",
-            "lock" => "锁定电脑",
-            _ => string.Empty
-        };
+        string? defaultName = SystemShortcutCatalog.GetDefaultName(shortcut.Action);
 
-        if (string.Equals(name, defaultName, StringComparison.Ordinal))
+        if (defaultName is not null && string.Equals(name, defaultName, StringComparison.Ordinal))
         {
             return shortcut.Action switch
             {
