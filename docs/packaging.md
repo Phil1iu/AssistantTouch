@@ -14,8 +14,18 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained fals
 
 # 方案 B：自包含发布（自带运行时，目标机器无需安装 .NET，体积大）
 dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained true -o dist/publish/win-x64-sc
+
+# 方案 C：单文件便携版（自带运行时，双击即用；不经过安装脚本）
+dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false `
+  -o dist/portable
 ```
 
+- **单文件便携版**产物为 `dist/portable/AssistantTouch.exe`，约 **68 MB**，未签名（首次运行可能触发 SmartScreen）。
+  `IncludeNativeLibrariesForSelfExtract` 会把原生库打进 exe，运行时解压到 `%TEMP%` 缓存，首次启动略慢。
+  它不使用 `install.ps1`/`uninstall.ps1`：直接放置 exe 即可；配置仍在 `%LOCALAPPDATA%\AssistantTouch`；
+  移动 exe 后 HKCU Run 自启路径不自动更新，需要重新勾选「开机自启」；删除 exe 即卸载（配置保留）。
 - 两种 payload 用**同一个** `install.ps1`：脚本复制发布目录的全部内容，不再依赖固定文件清单。
 - 判断方式：目录里有 `hostfxr.dll` / `coreclr.dll` → self-contained；只有
   `AssistantTouch.runtimeconfig.json` 且引用 `Microsoft.WindowsDesktop.App` → framework-dependent。

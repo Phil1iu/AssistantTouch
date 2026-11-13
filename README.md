@@ -63,6 +63,22 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained fals
 - 打包、安装/卸载脚本、运行时要求与签名状态见 [`docs/packaging.md`](docs/packaging.md)
   （当前**无代码签名证书**，签名列为阻塞项）。
 
+## 便携版（单文件）
+
+```powershell
+dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained true `
+  -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+  -p:EnableCompressionInSingleFile=true -p:DebugType=None -p:DebugSymbols=false `
+  -o dist/portable
+```
+
+- 产物：`dist/portable/AssistantTouch.exe` **单文件、约 68 MB**，自带 .NET 8 运行时，目标机器无需安装 .NET。
+- 未签名：首次运行可能触发 Windows SmartScreen，选择「更多信息 → 仍要运行」；正式分发建议代码签名。
+- 配置不随 exe 移动：仍在 `%LOCALAPPDATA%\AssistantTouch`（`window.json` / `shortcuts.json`）。
+- 移动 exe 后，若之前勾选过「开机自启」，HKCU Run 仍指向旧路径——需在右键菜单重新勾选一次。
+- 删除 exe 即卸载（配置保留）；需要清理配置时手动删除 `%LOCALAPPDATA%\AssistantTouch`。
+- 单文件会把原生库解压到 `%TEMP%` 缓存（`IncludeNativeLibrariesForSelfExtract`），首次启动略慢。
+
 ## 位置文件
 - 路径：`%LOCALAPPDATA%\AssistantTouch\window.json`（首次拖动或正常退出后生成）
 - 内容：`{"left": <number>, "top": <number>}`，WPF DIU
