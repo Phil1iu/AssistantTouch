@@ -41,6 +41,9 @@ public partial class RadialMenuWindow : Window
     private int _selectedIndex;
     private bool _selectionActive;
 
+    /// <summary>正在激活中（R7 双重激活守卫：入口置位，finally 清位）。</summary>
+    private bool _activating;
+
     /// <summary>当前环上实际渲染的圆（快捷项在前、「+」在末位；Partial 时可能只有「+」）。</summary>
     private sealed record CircleSlot(Border Circle, Border FocusRing, ShortcutDefinition? Shortcut, Point Center);
 
@@ -99,25 +102,48 @@ public partial class RadialMenuWindow : Window
     }
 
     /// <summary>执行当前选中项：快捷项执行并关环，「+」打开添加对话框。</summary>
-    private bool ActivateSelectedSlot()
+    private bool ActivateSelectedSlot() => ActivateSlot(_selectedIndex, ActivationSource.Keyboard);
+
+    /// <summary>
+    /// 统一激活入口：键盘 Enter/Space、鼠标未拖动单击、UIA Invoke 共用。
+    /// Invoke 等价「未拖动的左键单击」（不要求 <c>_selectionActive</c>）；
+    /// 键盘来源保持「未按过方向键不激活」的旧语义。
+    /// </summary>
+    internal bool ActivateSlot(int index, ActivationSource source)
     {
-        if (!_selectionActive || _selectedIndex < 0 || _selectedIndex >= _circleSlots.Count)
+        if (!ActivationPolicy.ShouldActivate(source, _selectionActive, IsVisible, _activating)
+            || index < 0
+            || index >= _circleSlots.Count)
         {
             return false;
         }
 
-        CircleSlot slot = _circleSlots[_selectedIndex];
-        if (slot.Shortcut is null)
+        _activating = true;
+        try
         {
-            ShowAddShortcutMenu(slot.Circle, PlacementMode.Bottom, includeRestoreDefaults: false);
-        }
-        else
-        {
-            ShortcutActions.Execute(slot.Shortcut);
-            Close();
-        }
+            // R4：拖拽中收到激活（可能来自 UIA）先按取消处理，避免残留拖拽态。
+            if (_dragShortcut is not null)
+            {
+                CancelShortcutDrag();
+            }
 
-        return true;
+            CircleSlot slot = _circleSlots[index];
+            if (slot.Shortcut is null)
+            {
+                ShowAddShortcutMenu(slot.Circle, PlacementMode.Bottom, includeRestoreDefaults: false);
+            }
+            else
+            {
+                ShortcutActions.Execute(slot.Shortcut);
+                Close();
+            }
+
+            return true;
+        }
+        finally
+        {
+            _activating = false;
+        }
     }
 
     private void OnCanvasMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -348,13 +374,13 @@ public partial class RadialMenuWindow : Window
         {
             if (item.Kind == RadialDrawKind.Shortcut && item.Shortcut is not null)
             {
-                Border circle = CreateShortcutCircle(item.Shortcut);
+                Border circle = CreateShortcutCircle(item.Shortcut, _circleSlots.Count);
                 AddCircle(circle, item.Center);
                 _circleSlots.Add(new CircleSlot(circle, GetFocusRing(circle), item.Shortcut, item.Center));
             }
             else
             {
-                Border plusCircle = CreatePlusCircle();
+                Border plusCircle = CreatePlusCircle(_circleSlots.Count);
                 AddCircle(plusCircle, item.Center);
                 _circleSlots.Add(new CircleSlot(plusCircle, GetFocusRing(plusCircle), null, item.Center));
             }
@@ -399,9 +425,9 @@ public partial class RadialMenuWindow : Window
         return new Rect(topLeft, bottomRight);
     }
 
-    private Border CreateShortcutCircle(ShortcutDefinition shortcut)
+    private Border CreateShortcutCircle(ShortcutDefinition shortcut, int index)
     {
-        Border circle = CreateCircleBase(shortcut.Name, CreateCircleContent(shortcut));
+        RadialCircle circle = CreateCircleBase(shortcut.Name, CreateCircleContent(shortcut), index, RadialSlotKind.Shortcut);
 
         // 左键：未拖动（<6px）执行动作；拖动到另一小圆中心半径内交换顺序。
         circle.MouseLeftButtonDown += (_, args) => BeginShortcutDrag(shortcut, circle, args);
@@ -540,9 +566,9 @@ public partial class RadialMenuWindow : Window
         _dragStarted = false;
     }
 
-    private Border CreatePlusCircle()
+    private Border CreatePlusCircle(int index)
     {
-        Border circle = CreateCircleBase("添加快捷启动", CreateLabel("+", 18));
+        RadialCircle circle = CreateCircleBase("添加快捷启动", CreateLabel("+", 18), index, RadialSlotKind.Plus);
 
         circle.MouseLeftButtonUp += (_, args) =>
         {
@@ -560,7 +586,7 @@ public partial class RadialMenuWindow : Window
         return circle;
     }
 
-    private Border CreateCircleBase(string tooltip, UIElement content)
+    private RadialCircle CreateCircleBase(string tooltip, UIElement content, int index, RadialSlotKind kind)
     {
         // 选中态焦点描边：叠在内容之上、不参与命中测试，未选中时折叠。
         var focusRing = new Border
@@ -577,7 +603,7 @@ public partial class RadialMenuWindow : Window
         contentHost.Children.Add(content);
         contentHost.Children.Add(focusRing);
 
-        var circle = new Border
+        var circle = new RadialCircle(index, kind, tooltip, ActivateSlot, () => IsVisible)
         {
             Width = CircleSize,
             Height = CircleSize,
