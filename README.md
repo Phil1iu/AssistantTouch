@@ -91,7 +91,9 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained true
 - 默认 6 个系统快捷方式；最多 8 个；文件缺失/损坏/字段非法时回落到默认，不崩溃
 - 修改（添加/删除/更换/恢复默认）立即写盘，临时文件 + 覆盖移动
 - **加载时机**：每次打开径向菜单都会重新读取该文件（不是只在启动时读一次），外部修改后无需重启
-- **诊断日志**：每次加载覆盖写 `%LOCALAPPDATA%\AssistantTouch\shortcuts-load.log`，记录时间、路径、是否存在、长度、解析结果、条数、首个失败原因（含 JSON 异常消息）与内容预览
+- **读失败保护**：文件存在但读取/解析失败时回落默认，且不会在打开环时立即覆盖；首次编辑前先把原文件备份为 `shortcuts.backup-<yyyyMMdd-HHmmss>.json`，备份失败则拒绝保存并提示「配置读取失败，已保留原文件；请关闭占用程序后重试」
+- **快照语义**：环打开期间的添加/删除/重命名/排序以本次打开时加载的列表为基准；若同时在外部修改文件，以最后一次保存为准（last-writer-wins），重新打开环后生效
+- **诊断日志**：每次加载覆盖写 `%LOCALAPPDATA%\AssistantTouch\shortcuts-load.log`，记录时间、路径、是否存在、长度、解析结果、条数、是否回落（`fallback=true/false`）、首个失败原因（含 JSON 异常消息）与内容预览
 - 路径按 JSON 规则写双反斜杠（`"C:\\Windows\\System32\\notepad.exe"`）；非法 JSON（例如只写单反斜杠）会导致整份配置被拒并回落到 6 个默认项，失败原因见上面的日志
 
 ## 已知问题 / 待决策
