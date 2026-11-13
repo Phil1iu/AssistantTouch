@@ -44,6 +44,13 @@ public partial class MainWindow : Window
         Loaded += OnWindowLoaded;
         PreviewKeyDown += OnWindowPreviewKeyDown;
         RestoreSavedPosition();
+
+        // UIA Invoke 等价「未拖动的左键单击」：打开径向菜单。
+        RootGrid.TryInvoke = () =>
+        {
+            OpenRadialMenu();
+            return true;
+        };
     }
 
     /// <summary>径向菜单打开时，Esc 也可由仍持有焦点的球窗口关闭。</summary>

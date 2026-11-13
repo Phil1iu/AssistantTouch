@@ -94,9 +94,13 @@
         </Style>
     </Window.Resources>
 
-    <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效 -->
-    <Grid x:Name="RootGrid"
+    <!-- Grid 必须有不透明/透明但不为 null 的背景，否则空白区域不参与命中测试，拖拽会失效。
+         BallSurfaceElement 是 Grid 的薄子类，只为让读屏能发现并 Invoke 悬浮球（UIA 树里
+         原本整个球不可见）；拖拽/位置记忆/右键菜单行为不变。 -->
+    <local:BallSurfaceElement x:Name="RootGrid"
           Background="Transparent"
+          AutomationProperties.Name="助手触摸"
+          AutomationProperties.HelpText="左键单击打开快捷菜单；拖动可移动；右键更多操作"
           MouseLeftButtonDown="OnMouseLeftButtonDown"
           MouseMove="OnMouseMove"
           MouseLeftButtonUp="OnMouseLeftButtonUp"
@@ -107,7 +111,7 @@
 
         <!-- 右键菜单：重置位置 / 开机自启 / 关于 / 退出。右键由 ContextMenuService 自动弹出；
              左键只用于拖拽（未拖动时不执行任何动作）。拖拽为手动实现（4px 阈值），不再使用 DragMove()。 -->
-        <Grid.ContextMenu>
+        <local:BallSurfaceElement.ContextMenu>
             <ContextMenu Opened="OnBallMenuOpened" Style="{StaticResource BallContextMenuStyle}">
                 <MenuItem Header="重置位置" Click="OnResetPositionClick" Style="{StaticResource BallMenuItemStyle}" />
                 <MenuItem Header="开机自启" IsCheckable="True" Click="OnAutostartClick" Style="{StaticResource BallMenuItemStyle}" />
@@ -115,7 +119,7 @@
                 <MenuItem Header="关于" Click="OnAboutClick" Style="{StaticResource BallMenuItemStyle}" />
                 <MenuItem Header="退出" Click="OnExitClick" Style="{StaticResource BallMenuItemStyle}" />
             </ContextMenu>
-        </Grid.ContextMenu>
+        </local:BallSurfaceElement.ContextMenu>
 
         <!-- Margin=2 保持不变：球体直径维持 68px（72px 窗口内留 2px 边），本轮只改外观、不改布局/尺寸。
              磨砂玻璃观感（纯 WPF，不用 DWM/SetWindowCompositionAttribute）：
@@ -225,5 +229,5 @@
                 </ControlTemplate>
             </ContentControl.Template>
         </ContentControl>
-    </Grid>
+    </local:BallSurfaceElement>
 </Window>
