@@ -46,8 +46,16 @@ public partial class MainWindow : Window
         RestoreSavedPosition();
 
         // UIA Invoke 等价「未拖动的左键单击」：打开径向菜单。
+        // 环已打开时直接忽略：重复 Invoke 若走 OpenRadialMenu 会先 Close 再重建窗口，
+        // 造成可见闪烁并丢失环内键盘选中态（读屏双击激活时尤其明显）。
+        // 鼠标路径不经此处（OnMouseLeftButtonUp 直接调 OpenRadialMenu），行为不变。
         RootGrid.TryInvoke = () =>
         {
+            if (_radialMenu is not null)
+            {
+                return false;
+            }
+
             OpenRadialMenu();
             return true;
         };
