@@ -143,7 +143,7 @@ public class ShortcutStoreFallbackTests
     }
 }
 
-/// <summary>内存文件系统：可注入读/写/复制失败，记录备份文件。</summary>
+/// <summary>内存文件系统：可注入读/写/复制失败，记录备份文件；回落备份与滚动备份分别计次。</summary>
 internal sealed class FakeShortcutFileSystem : IShortcutFileSystem
 {
     public Dictionary<string, byte[]> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -153,7 +153,14 @@ internal sealed class FakeShortcutFileSystem : IShortcutFileSystem
     public bool FailCopy { get; set; }
     public bool FailMove { get; set; }
 
+    /// <summary>只让滚动备份（<c>shortcuts.bak-*</c>）复制失败。</summary>
+    public bool FailRollingCopy { get; set; }
+
+    /// <summary>回落备份复制次数（既有断言依赖此语义）。</summary>
     public int CopyCount { get; private set; }
+
+    /// <summary>滚动备份复制次数。</summary>
+    public int RollingCopyCount { get; private set; }
 
     public bool FileExists(string path) => Files.ContainsKey(path);
 
@@ -208,11 +215,26 @@ internal sealed class FakeShortcutFileSystem : IShortcutFileSystem
 
     public void Copy(string source, string destination)
     {
-        CopyCount++;
+        bool rolling = Path.GetFileName(destination)
+            .StartsWith(ShortcutStore.RollingBackupPrefix, StringComparison.OrdinalIgnoreCase);
 
-        if (FailCopy)
+        if (rolling)
         {
-            throw new IOException("simulated copy failure");
+            RollingCopyCount++;
+
+            if (FailRollingCopy)
+            {
+                throw new IOException("simulated rolling backup failure");
+            }
+        }
+        else
+        {
+            CopyCount++;
+
+            if (FailCopy)
+            {
+                throw new IOException("simulated copy failure");
+            }
         }
 
         if (!Files.TryGetValue(source, out byte[]? bytes))
@@ -229,8 +251,36 @@ internal sealed class FakeShortcutFileSystem : IShortcutFileSystem
     {
     }
 
+    public IEnumerable<string> EnumerateFiles(string directory, string searchPattern) =>
+        Files.Keys
+            .Where(path =>
+                string.Equals(Path.GetDirectoryName(path), directory, StringComparison.OrdinalIgnoreCase) &&
+                MatchesFileName(Path.GetFileName(path), searchPattern))
+            .ToArray();
+
+    private static bool MatchesFileName(string fileName, string pattern)
+    {
+        int star = pattern.IndexOf('*');
+        if (star < 0)
+        {
+            return string.Equals(fileName, pattern, StringComparison.OrdinalIgnoreCase);
+        }
+
+        string prefix = pattern[..star];
+        string suffix = pattern[(star + 1)..];
+
+        return fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+               fileName.EndsWith(suffix, StringComparison.OrdinalIgnoreCase);
+    }
+
     public string[] BackupPaths() =>
         Files.Keys
             .Where(path => path.Contains("shortcuts.backup-", StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+
+    public string[] RollingBackupPaths() =>
+        Files.Keys
+            .Where(path => Path.GetFileName(path)
+                .StartsWith(ShortcutStore.RollingBackupPrefix, StringComparison.OrdinalIgnoreCase))
             .ToArray();
 }

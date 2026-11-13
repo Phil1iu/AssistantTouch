@@ -20,6 +20,11 @@ internal sealed class ShortcutStore
     /// <summary>写临时文件/覆盖移动失败。</summary>
     public const string WriteFailed = "write-failed";
 
+    /// <summary>生产保存时保留的滚动备份数量。</summary>
+    internal const int RollingBackupsToKeep = 3;
+
+    internal const string RollingBackupPrefix = "shortcuts.bak-";
+
     private static readonly HashSet<string> KnownSystemActions =
         new(SystemShortcutCatalog.All.Select(entry => entry.Action), StringComparer.Ordinal);
 
@@ -58,16 +63,22 @@ internal sealed class ShortcutStore
         _saveHook = saveHook;
     }
 
-    /// <summary>仅测试用：构造内存存储，默认不写真实 %LOCALAPPDATA%（可选捕获 Save 内容）。</summary>
+    /// <summary>仅测试用：构造内存存储；唯一临时路径 + 内存文件系统 + 显式保存钩子，绝不触碰真实 %LOCALAPPDATA%。</summary>
     internal static ShortcutStore CreateForTests(
         IEnumerable<ShortcutDefinition> shortcuts,
         Action<IReadOnlyList<ShortcutDefinition>>? saveHook = null)
     {
+        // 路径仅用于诊断；InMemoryShortcutFileSystem 不落盘，即使保存钩子被绕过也不会写真实配置。
+        string testDirectory = Path.Combine(
+            Path.GetTempPath(),
+            "AssistantTouchTests",
+            Guid.NewGuid().ToString("N"));
+
         return new ShortcutStore(
             shortcuts.ToList(),
-            FilePath,
-            LogFilePath,
-            new ShortcutFileSystem(),
+            Path.Combine(testDirectory, "shortcuts.json"),
+            Path.Combine(testDirectory, "shortcuts-load.log"),
+            new InMemoryShortcutFileSystem(),
             saveHook: saveHook ?? (_ => { }));
     }
 
