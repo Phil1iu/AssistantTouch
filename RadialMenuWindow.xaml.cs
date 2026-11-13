@@ -121,7 +121,15 @@ public partial class RadialMenuWindow : Window
 
     private void OnCanvasMouseRightButtonUp(object sender, MouseButtonEventArgs e)
     {
-        // 环内空白处右键：不论项数，都提供系统功能/应用程序添加与「恢复默认…」。
+        // 背景右键收窄到球心 240px 内；更远处不弹菜单、不关环（降低全屏误触）。
+        Point ballCenter = PointFromScreen(_ballCenterScreen);
+        Point pointer = e.GetPosition(RingCanvas);
+
+        if (!RadialMenuInteraction.ShouldShowBackgroundMenu(ballCenter, pointer))
+        {
+            return;
+        }
+
         ShowAddShortcutMenu(RingCanvas, PlacementMode.MousePoint, includeRestoreDefaults: true);
         e.Handled = true;
     }
@@ -288,21 +296,9 @@ public partial class RadialMenuWindow : Window
             RingRadius,
             MinDistanceFromBall);
 
-        // Partial（极小/异常工作区）按 rev-10 P2 降级：不渲染任何快捷小圆，只尝试画「+」。
-        if (layout.AllPlaced)
-        {
-            for (int i = 0; i < shortcutCount && i < layout.Centers.Count; i++)
-            {
-                ShortcutDefinition shortcut = _store.Shortcuts[i];
-                Point center = layout.Centers[i];
-                Border circle = CreateShortcutCircle(shortcut);
-                AddCircle(circle, center);
-                _circleSlots.Add(new CircleSlot(circle, GetFocusRing(circle), shortcut, center));
-            }
-        }
-
-        Point? plusPosition = layout.AllPlaced && layout.Centers.Count >= total
-            ? layout.Centers[shortcutCount]
+        // 要画哪些圆由纯函数决定；UI 只负责创建控件。
+        Point? plusFallback = layout.AllPlaced && layout.Centers.Count > shortcutCount
+            ? null
             : RadialLayout.ChooseFallbackCenter(
                 ballCenter,
                 workArea,
@@ -311,12 +307,25 @@ public partial class RadialMenuWindow : Window
                 layout.Centers,
                 out _);
 
-        // 兜底纯函数确认无合法位置（null）时不画「+」，绝不让它压在球心上。
-        if (plusPosition is { } plusPoint)
+        IReadOnlyList<RadialDrawItem> drawItems = RadialMenuComposer.Build(
+            layout,
+            _store.Shortcuts,
+            plusFallback);
+
+        foreach (RadialDrawItem item in drawItems)
         {
-            Border plusCircle = CreatePlusCircle();
-            AddCircle(plusCircle, plusPoint);
-            _circleSlots.Add(new CircleSlot(plusCircle, GetFocusRing(plusCircle), null, plusPoint));
+            if (item.Kind == RadialDrawKind.Shortcut && item.Shortcut is not null)
+            {
+                Border circle = CreateShortcutCircle(item.Shortcut);
+                AddCircle(circle, item.Center);
+                _circleSlots.Add(new CircleSlot(circle, GetFocusRing(circle), item.Shortcut, item.Center));
+            }
+            else
+            {
+                Border plusCircle = CreatePlusCircle();
+                AddCircle(plusCircle, item.Center);
+                _circleSlots.Add(new CircleSlot(plusCircle, GetFocusRing(plusCircle), null, item.Center));
+            }
         }
 
         List<ShortcutDefinition?> slots = _circleSlots.Select(slot => slot.Shortcut).ToList();
