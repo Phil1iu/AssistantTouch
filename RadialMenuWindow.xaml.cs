@@ -30,6 +30,7 @@ public partial class RadialMenuWindow : Window
     private Border? _dragCircle;
     private bool _dragStarted;
     private int _selectedIndex;
+    private bool _selectionActive;
 
     /// <summary>当前环上实际渲染的圆（快捷项在前、「+」在末位；Partial 时可能只有「+」）。</summary>
     private sealed record CircleSlot(Border Circle, Border FocusRing, ShortcutDefinition? Shortcut, Point Center);
@@ -73,6 +74,7 @@ public partial class RadialMenuWindow : Window
         if (next is int index)
         {
             _selectedIndex = index;
+            _selectionActive = true;
             ApplySelectionVisual();
             e.Handled = true;
             return;
@@ -90,7 +92,7 @@ public partial class RadialMenuWindow : Window
     /// <summary>执行当前选中项：快捷项执行并关环，「+」打开添加对话框。</summary>
     private bool ActivateSelectedSlot()
     {
-        if (_selectedIndex < 0 || _selectedIndex >= _circleSlots.Count)
+        if (!_selectionActive || _selectedIndex < 0 || _selectedIndex >= _circleSlots.Count)
         {
             return false;
         }
@@ -143,6 +145,15 @@ public partial class RadialMenuWindow : Window
 
     private void RebuildRing()
     {
+        // P3-3：重建前记录当前选中项（按引用），重建后跟随它；未激活选中态时只 clamp 索引。
+        ShortcutDefinition? previousItem = null;
+        if (_selectionActive && _selectedIndex >= 0 && _selectedIndex < _circleSlots.Count)
+        {
+            previousItem = _circleSlots[_selectedIndex].Shortcut;
+        }
+
+        int previousIndex = _selectedIndex;
+
         RingCanvas.Children.Clear();
         _circleSlots.Clear();
 
@@ -193,25 +204,24 @@ public partial class RadialMenuWindow : Window
             _circleSlots.Add(new CircleSlot(plusCircle, GetFocusRing(plusCircle), null, plusPoint));
         }
 
-        NormalizeSelection();
+        List<ShortcutDefinition?> slots = _circleSlots.Select(slot => slot.Shortcut).ToList();
+        _selectedIndex = SelectionResolver.Resolve(_selectionActive, previousIndex, previousItem, slots);
+        if (_selectedIndex < 0)
+        {
+            _selectionActive = false;
+        }
+
         ApplySelectionVisual();
     }
 
     private static Border GetFocusRing(Border circle) => (Border)circle.Tag;
-
-    private void NormalizeSelection()
-    {
-        _selectedIndex = _circleSlots.Count == 0
-            ? -1
-            : Math.Clamp(_selectedIndex, 0, _circleSlots.Count - 1);
-    }
 
     private void ApplySelectionVisual()
     {
         for (int i = 0; i < _circleSlots.Count; i++)
         {
             _circleSlots[i].FocusRing.Visibility =
-                i == _selectedIndex ? Visibility.Visible : Visibility.Collapsed;
+                _selectionActive && i == _selectedIndex ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -491,12 +501,13 @@ public partial class RadialMenuWindow : Window
         var renameItem = new MenuItem { Header = "重命名…" };
         renameItem.Click += (_, _) => RenameShortcut(shortcut);
 
-        var moveUpItem = new MenuItem
+        var moveCounterClockwiseItem = new MenuItem
         {
-            Header = "上移",
-            IsEnabled = index > 0
+            Header = "逆时针移一位",
+            IsEnabled = index > 0,
+            ToolTip = "按存储顺序与前一位交换（整圆从正上方顺时针编号；前一位即逆时针相邻槽位）"
         };
-        moveUpItem.Click += (_, _) =>
+        moveCounterClockwiseItem.Click += (_, _) =>
         {
             if (_store.Move(shortcut, -1))
             {
@@ -505,12 +516,13 @@ public partial class RadialMenuWindow : Window
             }
         };
 
-        var moveDownItem = new MenuItem
+        var moveClockwiseItem = new MenuItem
         {
-            Header = "下移",
-            IsEnabled = index >= 0 && index < _store.Shortcuts.Count - 1
+            Header = "顺时针移一位",
+            IsEnabled = index >= 0 && index < _store.Shortcuts.Count - 1,
+            ToolTip = "按存储顺序与后一位交换（顺时针相邻槽位）"
         };
-        moveDownItem.Click += (_, _) =>
+        moveClockwiseItem.Click += (_, _) =>
         {
             if (_store.Move(shortcut, 1))
             {
@@ -539,8 +551,8 @@ public partial class RadialMenuWindow : Window
         };
 
         menu.Items.Add(renameItem);
-        menu.Items.Add(moveUpItem);
-        menu.Items.Add(moveDownItem);
+        menu.Items.Add(moveCounterClockwiseItem);
+        menu.Items.Add(moveClockwiseItem);
         menu.Items.Add(new Separator());
         menu.Items.Add(deleteItem);
         menu.Items.Add(changeItem);
@@ -654,6 +666,9 @@ public partial class RadialMenuWindow : Window
 
     private void ShowRadialAfterDialog()
     {
+        // P3-1：对话框返回重开时重置键盘选中态，首次按方向键才显示焦点框。
+        _selectionActive = false;
+        _selectedIndex = 0;
         Show();
         Topmost = true;
         Activate();
