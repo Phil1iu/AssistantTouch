@@ -110,6 +110,10 @@ internal sealed class RadialCircleAutomationPeer : FrameworkElementAutomationPee
         return base.IsOffscreenCore();
     }
 
+    /// <summary>暴露 Invoke 模式（MVP-1 不提供 Selection）。</summary>
+    public override object? GetPattern(PatternInterface patternInterface) =>
+        patternInterface == PatternInterface.Invoke ? this : base.GetPattern(patternInterface);
+
     /// <summary>Invoke 不抛异常（隐藏/拖拽竞态下静默忽略），由统一入口做守卫。</summary>
     public void Invoke()
     {
