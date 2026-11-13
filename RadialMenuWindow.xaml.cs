@@ -27,6 +27,10 @@ public partial class RadialMenuWindow : Window
     private readonly Window _ownerWindow;
     private readonly List<CircleSlot> _circleSlots = new();
 
+    /// <summary>图标缓存：Path → (LastWriteTimeUtc, ImageSource?)，文件变化时自动失效。</summary>
+    private static readonly Dictionary<string, (DateTime LastWriteUtc, ImageSource? Icon)> IconCache =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private Point _dragStartPoint;
     private ShortcutDefinition? _dragShortcut;
     private Border? _dragCircle;
@@ -227,6 +231,12 @@ public partial class RadialMenuWindow : Window
                     RebuildRing();
                     FocusRingCanvas();
                 }
+                else if (_store.LastSaveFailure is not null)
+                {
+                    ShowStoreEditFailure();
+                    RebuildRing();
+                    FocusRingCanvas();
+                }
                 else
                 {
                     ShowAddLimitMessage();
@@ -259,7 +269,7 @@ public partial class RadialMenuWindow : Window
     private void ShowAddLimitMessage()
     {
         MessageBox.Show(
-            this,
+            _ownerWindow,
             "最多 8 个快捷启动",
             "AssistantTouch",
             MessageBoxButton.OK,
@@ -448,8 +458,13 @@ public partial class RadialMenuWindow : Window
 
         // 拖拽态：不执行动作；落在另一小圆中心半径内则交换，否则取消。
         ShortcutDefinition? target = FindDropTarget(dropPoint, dragged);
-        if (target is not null && _store.Swap(dragged, target))
+        if (target is not null)
         {
+            if (!_store.Swap(dragged, target))
+            {
+                ShowStoreEditFailure();
+            }
+
             RebuildRing();
             FocusRingCanvas();
         }
@@ -598,6 +613,36 @@ public partial class RadialMenuWindow : Window
 
     private static ImageSource? TryLoadIcon(string path)
     {
+        DateTime lastWriteUtc;
+        try
+        {
+            lastWriteUtc = File.GetLastWriteTimeUtc(path);
+        }
+        catch (Exception)
+        {
+            lastWriteUtc = DateTime.MinValue;
+        }
+
+        if (IconCache.TryGetValue(path, out (DateTime LastWriteUtc, ImageSource? Icon) cached) &&
+            cached.LastWriteUtc == lastWriteUtc)
+        {
+            return cached.Icon;
+        }
+
+        ImageSource? icon = ExtractAssociatedIcon(path);
+
+        // 简单容量上限，避免长期运行后路径缓存无限增长。
+        if (IconCache.Count >= 64)
+        {
+            IconCache.Clear();
+        }
+
+        IconCache[path] = (lastWriteUtc, icon);
+        return icon;
+    }
+
+    private static ImageSource? ExtractAssociatedIcon(string path)
+    {
         try
         {
             using System.Drawing.Icon? icon = System.Drawing.Icon.ExtractAssociatedIcon(path);
@@ -606,7 +651,17 @@ public partial class RadialMenuWindow : Window
                 return null;
             }
 
-            return Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+            BitmapSource bitmap = Imaging.CreateBitmapSourceFromHIcon(
+                icon.Handle,
+                Int32Rect.Empty,
+                BitmapSizeOptions.FromEmptyOptions());
+
+            if (bitmap.CanFreeze)
+            {
+                bitmap.Freeze();
+            }
+
+            return bitmap;
         }
         catch (Exception)
         {
@@ -630,11 +685,13 @@ public partial class RadialMenuWindow : Window
         };
         moveCounterClockwiseItem.Click += (_, _) =>
         {
-            if (_store.Move(shortcut, -1))
+            if (!_store.Move(shortcut, -1))
             {
-                RebuildRing();
-                FocusRingCanvas();
+                ShowStoreEditFailure();
             }
+
+            RebuildRing();
+            FocusRingCanvas();
         };
 
         var moveClockwiseItem = new MenuItem
@@ -645,17 +702,23 @@ public partial class RadialMenuWindow : Window
         };
         moveClockwiseItem.Click += (_, _) =>
         {
-            if (_store.Move(shortcut, 1))
+            if (!_store.Move(shortcut, 1))
             {
-                RebuildRing();
-                FocusRingCanvas();
+                ShowStoreEditFailure();
             }
+
+            RebuildRing();
+            FocusRingCanvas();
         };
 
         var deleteItem = new MenuItem { Header = "删除" };
         deleteItem.Click += (_, _) =>
         {
-            _store.Remove(shortcut);
+            if (!_store.Remove(shortcut))
+            {
+                ShowStoreEditFailure();
+            }
+
             RebuildRing();
             FocusRingCanvas();
         };
@@ -689,14 +752,50 @@ public partial class RadialMenuWindow : Window
             {
                 Owner = _ownerWindow
             };
-            if (dialog.ShowDialog() == true)
+
+            // 名称未变则不调用 Rename（Rename 对“无变化”返回 false，不应误报）。
+            if (dialog.ShowDialog() == true &&
+                !string.Equals(dialog.ResultName, shortcut.Name, StringComparison.Ordinal) &&
+                !_store.Rename(shortcut, dialog.ResultName))
             {
-                _store.Rename(shortcut, dialog.ResultName);
+                ShowStoreEditFailure();
             }
         }
         finally
         {
             ShowRadialAfterDialog();
+        }
+    }
+
+    /// <summary>编辑/保存失败时给出一致提示：配置保护失败、写盘失败或引用已失效。</summary>
+    private void ShowStoreEditFailure()
+    {
+        if (string.Equals(_store.LastSaveFailure, ShortcutStore.FallbackBackupFailed, StringComparison.Ordinal))
+        {
+            MessageBox.Show(
+                _ownerWindow,
+                "配置读取失败，已保留原文件；请关闭占用程序后重试",
+                "AssistantTouch",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        else if (_store.LastSaveFailure is not null)
+        {
+            MessageBox.Show(
+                _ownerWindow,
+                "保存失败，请重试",
+                "AssistantTouch",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+        }
+        else
+        {
+            MessageBox.Show(
+                _ownerWindow,
+                "该快捷项已变化，请重试",
+                "AssistantTouch",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
         }
     }
 
@@ -715,7 +814,15 @@ public partial class RadialMenuWindow : Window
                 Owner = _ownerWindow
             };
 
-            RestoreDefaultsConfirmation.Apply(dialog.ShowDialog(), _store.ResetToDefaults);
+            bool resetSucceeded = true;
+            RestoreDefaultsConfirmation.Apply(
+                dialog.ShowDialog(),
+                () => resetSucceeded = _store.ResetToDefaults());
+
+            if (!resetSucceeded)
+            {
+                ShowStoreEditFailure();
+            }
         }
         finally
         {
@@ -747,7 +854,10 @@ public partial class RadialMenuWindow : Window
                 Name = Path.GetFileNameWithoutExtension(path)
             };
 
-            _store.Replace(shortcut, replacement);
+            if (!_store.Replace(shortcut, replacement))
+            {
+                ShowStoreEditFailure();
+            }
         }
         finally
         {
@@ -783,12 +893,19 @@ public partial class RadialMenuWindow : Window
 
             if (!_store.TryAdd(shortcut))
             {
-                MessageBox.Show(
-                    _ownerWindow,
-                    "最多 8 个快捷启动",
-                    "AssistantTouch",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
+                if (_store.LastSaveFailure is not null)
+                {
+                    ShowStoreEditFailure();
+                }
+                else
+                {
+                    MessageBox.Show(
+                        _ownerWindow,
+                        "最多 8 个快捷启动",
+                        "AssistantTouch",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                }
             }
         }
         finally
@@ -864,6 +981,7 @@ public partial class RadialMenuWindow : Window
 
     private static string Shorten(string name)
     {
-        return name[..Math.Min(2, name.Length)];
+        string shortened = ShortcutText.TruncateTextElements(name, 2);
+        return string.IsNullOrEmpty(shortened) ? "快捷" : shortened;
     }
 }

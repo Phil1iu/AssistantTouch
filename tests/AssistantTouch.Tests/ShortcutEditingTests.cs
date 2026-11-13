@@ -203,6 +203,29 @@ public class ShortcutEditingTests
         Assert.Equal(Names(store.Shortcuts), Names(parsed!));
     }
 
+    [Fact]
+    public void EditMethods_AfterRename_OldReferenceReturnsFalse()
+    {
+        ShortcutStore store = ShortcutStore.CreateForTests(CreateList(3));
+        ShortcutDefinition old = store.Shortcuts[0];
+
+        Assert.True(store.Rename(old, "新名字"));
+
+        ShortcutDefinition current = store.Shortcuts[0];
+        Assert.NotSame(old, current);
+
+        Assert.False(store.Rename(old, "再次改名"));
+        Assert.False(store.Replace(old, new ShortcutDefinition
+        {
+            Kind = ShortcutKind.App,
+            Path = @"C:\replacement.exe",
+            Name = "replacement"
+        }));
+        Assert.False(store.Remove(old));
+        Assert.False(store.Move(old, 1));
+        Assert.False(store.Swap(old, store.Shortcuts[1]));
+    }
+
     [Theory]
     [InlineData("abc", "abc")]
     [InlineData("  abc  ", "abc")]

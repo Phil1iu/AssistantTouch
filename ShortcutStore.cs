@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
@@ -13,6 +14,12 @@ internal sealed class ShortcutStore
 {
     public const int MaxShortcuts = 8;
 
+    /// <summary>回落态首次保存前备份原文件失败（拒绝保存）。</summary>
+    public const string FallbackBackupFailed = "fallback-backup-failed";
+
+    /// <summary>写临时文件/覆盖移动失败。</summary>
+    public const string WriteFailed = "write-failed";
+
     private static readonly HashSet<string> KnownSystemActions =
         new(SystemShortcutCatalog.All.Select(entry => entry.Action), StringComparer.Ordinal);
 
@@ -21,23 +28,60 @@ internal sealed class ShortcutStore
         "AssistantTouch");
 
     private readonly List<ShortcutDefinition> _shortcuts;
+    private readonly string _filePath;
+    private readonly string _directoryPath;
+    private readonly string _logFilePath;
+    private readonly IShortcutFileSystem _fileSystem;
+    private readonly bool _isFallback;
+    private readonly string? _fallbackReason;
+    private bool _fallbackBackedUp;
 
     /// <summary>仅测试用：捕获 Save 的内容，避免写真实 %LOCALAPPDATA%。</summary>
     private readonly Action<IReadOnlyList<ShortcutDefinition>>? _saveHook;
 
-    private ShortcutStore(List<ShortcutDefinition> shortcuts, Action<IReadOnlyList<ShortcutDefinition>>? saveHook = null)
+    private ShortcutStore(
+        List<ShortcutDefinition> shortcuts,
+        string filePath,
+        string logFilePath,
+        IShortcutFileSystem fileSystem,
+        bool isFallback = false,
+        string? fallbackReason = null,
+        Action<IReadOnlyList<ShortcutDefinition>>? saveHook = null)
     {
         _shortcuts = shortcuts;
+        _filePath = filePath;
+        _directoryPath = Path.GetDirectoryName(filePath) ?? ".";
+        _logFilePath = logFilePath;
+        _fileSystem = fileSystem;
+        _isFallback = isFallback;
+        _fallbackReason = fallbackReason;
         _saveHook = saveHook;
     }
 
-    /// <summary>仅测试用：构造内存存储并可选捕获每次 Save 的内容。</summary>
+    /// <summary>仅测试用：构造内存存储，默认不写真实 %LOCALAPPDATA%（可选捕获 Save 内容）。</summary>
     internal static ShortcutStore CreateForTests(
         IEnumerable<ShortcutDefinition> shortcuts,
         Action<IReadOnlyList<ShortcutDefinition>>? saveHook = null)
     {
-        return new ShortcutStore(shortcuts.ToList(), saveHook);
+        return new ShortcutStore(
+            shortcuts.ToList(),
+            FilePath,
+            LogFilePath,
+            new ShortcutFileSystem(),
+            saveHook: saveHook ?? (_ => { }));
     }
+
+    /// <summary>本次加载是否因「文件存在但读/解析失败」回落到默认列表。</summary>
+    public bool IsFallback => _isFallback;
+
+    /// <summary>回落原因（解析错误或 IO 异常）；未回落为 null。</summary>
+    public string? FallbackReason => _fallbackReason;
+
+    /// <summary>回落态的原文件是否已成功备份。</summary>
+    public bool FallbackBackupCreated => _fallbackBackedUp;
+
+    /// <summary>最近一次编辑/保存失败的原因（<see cref="FallbackBackupFailed"/> / <see cref="WriteFailed"/>）。</summary>
+    public string? LastSaveFailure { get; private set; }
 
     /// <summary>快捷方式文件的完整路径。</summary>
     public static string FilePath { get; } = Path.Combine(DirectoryPath, "shortcuts.json");
@@ -49,59 +93,93 @@ internal sealed class ShortcutStore
 
     public static ShortcutStore Load()
     {
+        return Load(FilePath, LogFilePath, new ShortcutFileSystem());
+    }
+
+    /// <summary>可注入 IO 的加载（测试用）：区分「文件不存在」与「存在但读/解析失败」。</summary>
+    internal static ShortcutStore Load(string filePath, string logFilePath, IShortcutFileSystem fileSystem)
+    {
+        bool exists = false;
         string? text = null;
 
         try
         {
-            if (File.Exists(FilePath))
+            exists = fileSystem.FileExists(filePath);
+
+            if (exists)
             {
-                text = File.ReadAllText(FilePath);
+                text = fileSystem.ReadAllText(filePath);
+
                 if (TryParse(text, out List<ShortcutDefinition>? parsed, out string? error) && parsed is not null)
                 {
-                    WriteLog(exists: true, length: text.Length, parsed: true, count: parsed.Count, error: null, text: text);
-                    return new ShortcutStore(parsed);
+                    WriteLog(fileSystem, logFilePath, filePath, exists: true, length: text.Length,
+                        parsed: true, count: parsed.Count, error: null, fallback: false, text: text);
+                    return new ShortcutStore(parsed, filePath, logFilePath, fileSystem);
                 }
 
-                WriteLog(exists: true, length: text.Length, parsed: false, count: 0, error: error ?? "unknown", text: text);
+                string reason = error ?? "unknown";
+                WriteLog(fileSystem, logFilePath, filePath, exists: true, length: text.Length,
+                    parsed: false, count: 0, error: reason, fallback: true, text: text);
+                return new ShortcutStore(
+                    ShortcutDefinition.CreateDefaults(),
+                    filePath,
+                    logFilePath,
+                    fileSystem,
+                    isFallback: true,
+                    fallbackReason: reason);
             }
-            else
-            {
-                WriteLog(exists: false, length: 0, parsed: false, count: 0, error: "missing", text: null);
-            }
+
+            WriteLog(fileSystem, logFilePath, filePath, exists: false, length: 0,
+                parsed: false, count: 0, error: "missing", fallback: false, text: null);
         }
         catch (Exception exception)
         {
-            WriteLog(
-                exists: File.Exists(FilePath),
-                length: text?.Length ?? -1,
-                parsed: false,
-                count: 0,
-                error: exception.GetType().Name + ": " + exception.Message,
-                text: text);
+            string reason = exception.GetType().Name + ": " + exception.Message;
+            WriteLog(fileSystem, logFilePath, filePath, exists: exists, length: text?.Length ?? -1,
+                parsed: false, count: 0, error: reason, fallback: true, text: text);
+            return new ShortcutStore(
+                ShortcutDefinition.CreateDefaults(),
+                filePath,
+                logFilePath,
+                fileSystem,
+                isFallback: true,
+                fallbackReason: reason);
         }
 
-        return new ShortcutStore(ShortcutDefinition.CreateDefaults());
+        // 文件不存在：首次运行，正常默认、允许保存、不触发备份。
+        return new ShortcutStore(ShortcutDefinition.CreateDefaults(), filePath, logFilePath, fileSystem);
     }
 
     /// <summary>把本次加载结果覆盖写到 <c>shortcuts-load.log</c>；日志失败不影响加载。</summary>
-    private static void WriteLog(bool exists, int length, bool parsed, int count, string? error, string? text)
+    private static void WriteLog(
+        IShortcutFileSystem fileSystem,
+        string logFilePath,
+        string filePath,
+        bool exists,
+        int length,
+        bool parsed,
+        int count,
+        string? error,
+        bool fallback,
+        string? text)
     {
         try
         {
-            Directory.CreateDirectory(DirectoryPath);
+            fileSystem.CreateDirectory(Path.GetDirectoryName(logFilePath) ?? ".");
 
             string line = string.Join(
                 " ",
                 DateTime.Now.ToString("O"),
-                "path=" + FilePath,
+                "path=" + filePath,
                 "exists=" + exists,
                 "length=" + length,
                 "parsed=" + parsed,
                 "count=" + count,
                 "error=" + (error ?? "-"),
+                "fallback=" + (fallback ? "true" : "false"),
                 "preview=" + BuildPreview(text));
 
-            File.WriteAllText(LogFilePath, line + Environment.NewLine);
+            fileSystem.WriteAllText(logFilePath, line + Environment.NewLine);
         }
         catch (Exception)
         {
@@ -135,38 +213,58 @@ internal sealed class ShortcutStore
 
     public bool TryAdd(ShortcutDefinition shortcut)
     {
+        LastSaveFailure = null;
+
         if (_shortcuts.Count >= MaxShortcuts)
         {
             return false;
         }
 
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
         _shortcuts.Add(shortcut);
-        Save();
-        return true;
+        return Save();
     }
 
     public bool Remove(ShortcutDefinition shortcut)
     {
-        bool removed = _shortcuts.Remove(shortcut);
-        if (removed)
+        LastSaveFailure = null;
+
+        int index = _shortcuts.IndexOf(shortcut);
+        if (index < 0)
         {
-            Save();
+            return false;
         }
 
-        return removed;
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
+        _shortcuts.RemoveAt(index);
+        return Save();
     }
 
     public bool Replace(ShortcutDefinition oldShortcut, ShortcutDefinition newShortcut)
     {
+        LastSaveFailure = null;
+
         int index = _shortcuts.IndexOf(oldShortcut);
         if (index < 0)
         {
             return false;
         }
 
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
         _shortcuts[index] = newShortcut;
-        Save();
-        return true;
+        return Save();
     }
 
     public int IndexOf(ShortcutDefinition shortcut) => _shortcuts.IndexOf(shortcut);
@@ -176,6 +274,8 @@ internal sealed class ShortcutStore
     /// </summary>
     public bool Move(ShortcutDefinition shortcut, int offset)
     {
+        LastSaveFailure = null;
+
         int index = _shortcuts.IndexOf(shortcut);
         if (index < 0 || offset == 0)
         {
@@ -188,15 +288,21 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
         _shortcuts.RemoveAt(index);
         _shortcuts.Insert(target, shortcut);
-        Save();
-        return true;
+        return Save();
     }
 
     /// <summary>交换两个快捷项的位置；找不到、同一个对象时返回 false；成功立即保存。</summary>
     public bool Swap(ShortcutDefinition first, ShortcutDefinition second)
     {
+        LastSaveFailure = null;
+
         int firstIndex = _shortcuts.IndexOf(first);
         int secondIndex = _shortcuts.IndexOf(second);
         if (firstIndex < 0 || secondIndex < 0 || firstIndex == secondIndex)
@@ -204,9 +310,13 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
         (_shortcuts[firstIndex], _shortcuts[secondIndex]) = (_shortcuts[secondIndex], _shortcuts[firstIndex]);
-        Save();
-        return true;
+        return Save();
     }
 
     /// <summary>
@@ -214,6 +324,8 @@ internal sealed class ShortcutStore
     /// </summary>
     public bool Rename(ShortcutDefinition shortcut, string? newName)
     {
+        LastSaveFailure = null;
+
         int index = _shortcuts.IndexOf(shortcut);
         if (index < 0 || !ShortcutName.TryNormalize(newName, out string normalized, out _))
         {
@@ -222,6 +334,11 @@ internal sealed class ShortcutStore
 
         ShortcutDefinition current = _shortcuts[index];
         if (string.Equals(current.Name, normalized, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (!EnsureFallbackBackup())
         {
             return false;
         }
@@ -235,15 +352,21 @@ internal sealed class ShortcutStore
             Name = normalized
         };
 
-        Save();
-        return true;
+        return Save();
     }
 
-    public void ResetToDefaults()
+    public bool ResetToDefaults()
     {
+        LastSaveFailure = null;
+
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
         _shortcuts.Clear();
         _shortcuts.AddRange(ShortcutDefinition.CreateDefaults());
-        Save();
+        return Save();
     }
 
     /// <summary>解析 JSON（纯函数，internal 便于单测）：严格校验，任一非法项即返回 false。</summary>
@@ -401,36 +524,98 @@ internal sealed class ShortcutStore
         }
     }
 
-    /// <summary>保存（临时文件 + 覆盖移动）；失败静默忽略。测试钩子存在时不写磁盘。</summary>
-    public void Save()
+    /// <summary>
+    /// 保存（临时文件 + 覆盖移动）。测试钩子存在时不写磁盘。
+    /// 回落态第一次保存前先备份原文件；备份失败则拒绝保存并返回 false。
+    /// </summary>
+    public bool Save()
     {
         if (_saveHook is not null)
         {
             _saveHook(_shortcuts);
-            return;
+            LastSaveFailure = null;
+            return true;
         }
 
-        string tempPath = $"{FilePath}.{Environment.ProcessId}.tmp";
+        if (!EnsureFallbackBackup())
+        {
+            return false;
+        }
+
+        string tempPath = $"{_filePath}.{Environment.ProcessId}.tmp";
 
         try
         {
-            Directory.CreateDirectory(DirectoryPath);
-            File.WriteAllBytes(tempPath, Serialize(_shortcuts));
-            File.Move(tempPath, FilePath, overwrite: true);
+            _fileSystem.CreateDirectory(_directoryPath);
+            _fileSystem.WriteAllBytes(tempPath, Serialize(_shortcuts));
+            _fileSystem.Move(tempPath, _filePath, overwrite: true);
+            LastSaveFailure = null;
+            return true;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            Debug.WriteLine($"ShortcutStore.Save failed: {exception.Message}");
+            LastSaveFailure = WriteFailed;
+
             try
             {
-                if (File.Exists(tempPath))
+                if (_fileSystem.FileExists(tempPath))
                 {
-                    File.Delete(tempPath);
+                    _fileSystem.Delete(tempPath);
                 }
             }
             catch (Exception)
             {
             }
+
+            return false;
         }
+    }
+
+    /// <summary>回落态首次写入前的原文件备份；成功后同一次加载内不再重复备份。</summary>
+    private bool EnsureFallbackBackup()
+    {
+        if (!_isFallback || _fallbackBackedUp)
+        {
+            return true;
+        }
+
+        try
+        {
+            string backupPath = BuildBackupPath();
+            _fileSystem.Copy(_filePath, backupPath);
+            _fallbackBackedUp = true;
+            LastSaveFailure = null;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"ShortcutStore fallback backup failed: {exception.Message}");
+            LastSaveFailure = FallbackBackupFailed;
+            return false;
+        }
+    }
+
+    private string BuildBackupPath()
+    {
+        string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+        string candidate = Path.Combine(_directoryPath, $"shortcuts.backup-{stamp}.json");
+
+        if (!_fileSystem.FileExists(candidate))
+        {
+            return candidate;
+        }
+
+        for (int index = 1; index < 1000; index++)
+        {
+            candidate = Path.Combine(_directoryPath, $"shortcuts.backup-{stamp}-{index}.json");
+            if (!_fileSystem.FileExists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(_directoryPath, $"shortcuts.backup-{stamp}-{Guid.NewGuid():N}.json");
     }
 
     /// <summary>序列化为与 <see cref="Save"/> 完全一致的 JSON；internal 便于单测 round-trip。</summary>
