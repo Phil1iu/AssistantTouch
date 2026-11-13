@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 
 namespace AssistantTouch;
@@ -21,6 +22,8 @@ public partial class RadialMenuWindow : Window
     private const double RingRadius = 95;
     private const double MinDistanceFromBall = 70;
     private const double DragStartThreshold = 6;
+    private const double HoverScale = 1.10;
+    private static readonly TimeSpan HoverAnimationDuration = TimeSpan.FromMilliseconds(100);
 
     private readonly ShortcutStore _store;
     private readonly Point _ballCenterScreen;
@@ -206,8 +209,27 @@ public partial class RadialMenuWindow : Window
             }
         };
 
-        menu.PlacementTarget = target;
-        menu.Placement = placement;
+        if (target is Border circle)
+        {
+            // 用原始布局矩形做锚点，避免 hover 缩放（RenderTransform）改变菜单定位。
+            Point center = new(
+                Canvas.GetLeft(circle) + CircleSize / 2,
+                Canvas.GetTop(circle) + CircleSize / 2);
+
+            menu.PlacementTarget = RingCanvas;
+            menu.PlacementRectangle = new Rect(
+                center.X - CircleSize / 2,
+                center.Y - CircleSize / 2,
+                CircleSize,
+                CircleSize);
+            menu.Placement = placement;
+        }
+        else
+        {
+            menu.PlacementTarget = target;
+            menu.Placement = placement;
+        }
+
         menu.IsOpen = true;
     }
 
@@ -408,6 +430,9 @@ public partial class RadialMenuWindow : Window
         _dragCircle = circle;
         _dragStartPoint = e.GetPosition(RingCanvas);
         _dragStarted = false;
+
+        // 拖拽开始立即取消 hover 放大（无动画，避免拖拽抖动）。
+        ApplyHoverVisual(circle, hovered: false, animate: false);
         circle.CaptureMouse();
         e.Handled = true;
     }
@@ -495,13 +520,19 @@ public partial class RadialMenuWindow : Window
 
     private void CancelShortcutDrag(bool releaseCapture = true)
     {
-        if (_dragCircle is not null)
+        Border? circle = _dragCircle;
+
+        if (circle is not null)
         {
-            _dragCircle.Opacity = 1.0;
-            if (releaseCapture && _dragCircle.IsMouseCaptured)
+            circle.Opacity = 1.0;
+
+            if (releaseCapture && circle.IsMouseCaptured)
             {
-                _dragCircle.ReleaseMouseCapture();
+                circle.ReleaseMouseCapture();
             }
+
+            // 拖拽取消/结束后：指针仍在圆上则恢复 hover 放大，否则复位。
+            ApplyHoverVisual(circle, circle.IsMouseOver);
         }
 
         _dragShortcut = null;
@@ -529,7 +560,7 @@ public partial class RadialMenuWindow : Window
         return circle;
     }
 
-    private static Border CreateCircleBase(string tooltip, UIElement content)
+    private Border CreateCircleBase(string tooltip, UIElement content)
     {
         // 选中态焦点描边：叠在内容之上、不参与命中测试，未选中时折叠。
         var focusRing = new Border
@@ -554,8 +585,13 @@ public partial class RadialMenuWindow : Window
             ToolTip = tooltip,
             Cursor = Cursors.Hand,
             Child = contentHost,
-            Tag = focusRing
+            Tag = focusRing,
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = new ScaleTransform(1, 1)
         };
+
+        circle.MouseEnter += (_, _) => OnCircleMouseEnter(circle);
+        circle.MouseLeave += (_, _) => OnCircleMouseLeave(circle);
 
         // 小圆本身通常没有 automation peer；名称同时挂到 Border 和图标上，
         // 这样只有图标、没有文字的 app 圆也能被 UIA 按名字数到。
@@ -576,6 +612,60 @@ public partial class RadialMenuWindow : Window
         circle.Style = style;
 
         return circle;
+    }
+
+    private void OnCircleMouseEnter(Border circle)
+    {
+        // 拖拽中的圆不参与 hover 缩放，避免拖拽抖动。
+        if (_dragShortcut is not null && ReferenceEquals(circle, _dragCircle))
+        {
+            return;
+        }
+
+        ApplyHoverVisual(circle, hovered: true);
+    }
+
+    private void OnCircleMouseLeave(Border circle)
+    {
+        if (_dragShortcut is not null && ReferenceEquals(circle, _dragCircle))
+        {
+            return;
+        }
+
+        ApplyHoverVisual(circle, hovered: false);
+    }
+
+    /// <summary>
+    /// 悬停视觉：提升 ZIndex 避免放大后被相邻圆压住；每圆一个 ScaleTransform。
+    /// 100ms QuadraticEaseOut；系统关闭客户区动画时直接切换。
+    /// </summary>
+    private static void ApplyHoverVisual(Border circle, bool hovered, bool animate = true)
+    {
+        Panel.SetZIndex(circle, hovered ? 1 : 0);
+
+        if (circle.RenderTransform is not ScaleTransform scale)
+        {
+            return;
+        }
+
+        double target = hovered ? HoverScale : 1.0;
+
+        if (!animate || !SystemParameters.ClientAreaAnimation)
+        {
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            scale.ScaleX = target;
+            scale.ScaleY = target;
+            return;
+        }
+
+        var easing = new QuadraticEase { EasingMode = EasingMode.EaseOut };
+        scale.BeginAnimation(
+            ScaleTransform.ScaleXProperty,
+            new DoubleAnimation(scale.ScaleX, target, HoverAnimationDuration) { EasingFunction = easing });
+        scale.BeginAnimation(
+            ScaleTransform.ScaleYProperty,
+            new DoubleAnimation(scale.ScaleY, target, HoverAnimationDuration) { EasingFunction = easing });
     }
 
     private static UIElement CreateCircleContent(ShortcutDefinition shortcut)
