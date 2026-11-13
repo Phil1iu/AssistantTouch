@@ -29,9 +29,10 @@ public partial class RadialMenuWindow : Window
     private ShortcutDefinition? _dragShortcut;
     private Border? _dragCircle;
     private bool _dragStarted;
+    private int _selectedIndex;
 
     /// <summary>当前环上实际渲染的圆（快捷项在前、「+」在末位；Partial 时可能只有「+」）。</summary>
-    private sealed record CircleSlot(Border Circle, ShortcutDefinition? Shortcut, Point Center);
+    private sealed record CircleSlot(Border Circle, Border FocusRing, ShortcutDefinition? Shortcut, Point Center);
 
     internal RadialMenuWindow(ShortcutStore store, Point ballCenterScreen, Window owner)
     {
@@ -65,7 +66,47 @@ public partial class RadialMenuWindow : Window
         {
             Close();
             e.Handled = true;
+            return;
         }
+
+        int? next = KeyboardNavigation.Next(_selectedIndex, _circleSlots.Count, e.Key);
+        if (next is int index)
+        {
+            _selectedIndex = index;
+            ApplySelectionVisual();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Enter || e.Key == Key.Return || e.Key == Key.Space)
+        {
+            if (ActivateSelectedSlot())
+            {
+                e.Handled = true;
+            }
+        }
+    }
+
+    /// <summary>执行当前选中项：快捷项执行并关环，「+」打开添加对话框。</summary>
+    private bool ActivateSelectedSlot()
+    {
+        if (_selectedIndex < 0 || _selectedIndex >= _circleSlots.Count)
+        {
+            return false;
+        }
+
+        CircleSlot slot = _circleSlots[_selectedIndex];
+        if (slot.Shortcut is null)
+        {
+            OnAddClick();
+        }
+        else
+        {
+            ShortcutActions.Execute(slot.Shortcut);
+            Close();
+        }
+
+        return true;
     }
 
     private void OnCanvasMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -130,7 +171,7 @@ public partial class RadialMenuWindow : Window
                 Point center = layout.Centers[i];
                 Border circle = CreateShortcutCircle(shortcut);
                 AddCircle(circle, center);
-                _circleSlots.Add(new CircleSlot(circle, shortcut, center));
+                _circleSlots.Add(new CircleSlot(circle, GetFocusRing(circle), shortcut, center));
             }
         }
 
@@ -149,7 +190,28 @@ public partial class RadialMenuWindow : Window
         {
             Border plusCircle = CreatePlusCircle();
             AddCircle(plusCircle, plusPoint);
-            _circleSlots.Add(new CircleSlot(plusCircle, null, plusPoint));
+            _circleSlots.Add(new CircleSlot(plusCircle, GetFocusRing(plusCircle), null, plusPoint));
+        }
+
+        NormalizeSelection();
+        ApplySelectionVisual();
+    }
+
+    private static Border GetFocusRing(Border circle) => (Border)circle.Tag;
+
+    private void NormalizeSelection()
+    {
+        _selectedIndex = _circleSlots.Count == 0
+            ? -1
+            : Math.Clamp(_selectedIndex, 0, _circleSlots.Count - 1);
+    }
+
+    private void ApplySelectionVisual()
+    {
+        for (int i = 0; i < _circleSlots.Count; i++)
+        {
+            _circleSlots[i].FocusRing.Visibility =
+                i == _selectedIndex ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 
@@ -323,6 +385,21 @@ public partial class RadialMenuWindow : Window
 
     private static Border CreateCircleBase(string tooltip, UIElement content)
     {
+        // 选中态焦点描边：叠在内容之上、不参与命中测试，未选中时折叠。
+        var focusRing = new Border
+        {
+            CornerRadius = new CornerRadius((CircleSize - 2) / 2),
+            BorderThickness = new Thickness(2),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(0x00, 0x78, 0xD4)),
+            Margin = new Thickness(1),
+            IsHitTestVisible = false,
+            Visibility = Visibility.Collapsed
+        };
+
+        var contentHost = new Grid();
+        contentHost.Children.Add(content);
+        contentHost.Children.Add(focusRing);
+
         var circle = new Border
         {
             Width = CircleSize,
@@ -330,7 +407,8 @@ public partial class RadialMenuWindow : Window
             CornerRadius = new CornerRadius(CircleSize / 2),
             ToolTip = tooltip,
             Cursor = Cursors.Hand,
-            Child = content
+            Child = contentHost,
+            Tag = focusRing
         };
 
         // 小圆本身通常没有 automation peer；名称同时挂到 Border 和图标上，
