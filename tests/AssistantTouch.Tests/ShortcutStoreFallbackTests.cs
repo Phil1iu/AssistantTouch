@@ -167,6 +167,45 @@ public class ShortcutStoreFallbackTests
         Assert.Equal(2, backups.Length);
         Assert.Contains(backups, path => Encoding.UTF8.GetString(fileSystem.Files[path]) == restored);
     }
+
+    [Fact]
+    public void Load_RemovesStaleTempFilesButKeepsCurrentProcessAndOtherFiles()
+    {
+        var fileSystem = new FakeShortcutFileSystem();
+        fileSystem.Files[FilePath] = Encoding.UTF8.GetBytes("{\"shortcuts\":[]}");
+
+        string stale = FilePath + ".12345.tmp";
+        string currentProcess = FilePath + "." + Environment.ProcessId + ".tmp";
+        string notProcessId = FilePath + ".notpid.tmp";
+        string otherFile = @"C:\fake\other.json.999.tmp";
+
+        foreach (string path in new[] { stale, currentProcess, notProcessId, otherFile })
+        {
+            fileSystem.Files[path] = new byte[] { 1 };
+        }
+
+        ShortcutStore store = ShortcutStore.Load(FilePath, LogPath, fileSystem);
+
+        Assert.Empty(store.Shortcuts);
+        Assert.False(fileSystem.Files.ContainsKey(stale));
+        Assert.True(fileSystem.Files.ContainsKey(currentProcess));
+        Assert.True(fileSystem.Files.ContainsKey(notProcessId));
+        Assert.True(fileSystem.Files.ContainsKey(otherFile));
+    }
+
+    [Fact]
+    public void Load_StaleTempDeleteFailure_DoesNotThrow()
+    {
+        var fileSystem = new FakeShortcutFileSystem { FailDelete = true };
+        fileSystem.Files[FilePath] = Encoding.UTF8.GetBytes("{\"shortcuts\":[]}");
+        string stale = FilePath + ".12345.tmp";
+        fileSystem.Files[stale] = new byte[] { 1 };
+
+        ShortcutStore store = ShortcutStore.Load(FilePath, LogPath, fileSystem);
+
+        Assert.NotNull(store);
+        Assert.True(fileSystem.Files.ContainsKey(stale));
+    }
 }
 
 /// <summary>内存文件系统：可注入读/写/复制失败，记录备份文件；回落备份与滚动备份分别计次。</summary>
@@ -178,6 +217,7 @@ internal sealed class FakeShortcutFileSystem : IShortcutFileSystem
     public bool FailWrite { get; set; }
     public bool FailCopy { get; set; }
     public bool FailMove { get; set; }
+    public bool FailDelete { get; set; }
 
     /// <summary>只让滚动备份（<c>shortcuts.bak-*</c>）复制失败。</summary>
     public bool FailRollingCopy { get; set; }
@@ -271,7 +311,15 @@ internal sealed class FakeShortcutFileSystem : IShortcutFileSystem
         Files[destination] = bytes.ToArray();
     }
 
-    public void Delete(string path) => Files.Remove(path);
+    public void Delete(string path)
+    {
+        if (FailDelete)
+        {
+            throw new IOException("simulated delete failure");
+        }
+
+        Files.Remove(path);
+    }
 
     public void CreateDirectory(string path)
     {

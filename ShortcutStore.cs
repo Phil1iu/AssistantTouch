@@ -113,6 +113,8 @@ internal sealed class ShortcutStore
     /// <summary>可注入 IO 的加载（测试用）：区分「文件不存在」与「存在但读/解析失败」。</summary>
     internal static ShortcutStore Load(string filePath, string logFilePath, IShortcutFileSystem fileSystem)
     {
+        CleanupStaleTempFiles(fileSystem, filePath);
+
         bool exists = false;
         string? text = null;
 
@@ -223,6 +225,56 @@ internal sealed class ShortcutStore
         }
 
         return builder.ToString();
+    }
+
+    /// <summary>
+    /// 清理上次进程被强杀时写了一半的临时文件：只匹配 <c>&lt;文件名&gt;.&lt;数字 pid&gt;.tmp</c>，
+    /// 跳过当前进程自己的临时文件；删除失败静默忽略（不影响加载）。
+    /// </summary>
+    private static void CleanupStaleTempFiles(IShortcutFileSystem fileSystem, string filePath)
+    {
+        try
+        {
+            string? directory = Path.GetDirectoryName(filePath);
+            string fileName = Path.GetFileName(filePath);
+
+            if (string.IsNullOrEmpty(directory) || fileName.Length == 0)
+            {
+                return;
+            }
+
+            string prefix = fileName + ".";
+            const string suffix = ".tmp";
+
+            foreach (string candidate in fileSystem.EnumerateFiles(directory, prefix + "*" + suffix))
+            {
+                string name = Path.GetFileName(candidate);
+                if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ||
+                    !name.EndsWith(suffix, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string pidText = name[prefix.Length..^suffix.Length];
+                if (!int.TryParse(pidText, out int processId) || processId == Environment.ProcessId)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    fileSystem.Delete(candidate);
+                }
+                catch (Exception exception)
+                {
+                    Debug.WriteLine($"ShortcutStore stale temp cleanup skipped: {exception.Message}");
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"ShortcutStore stale temp cleanup failed: {exception.Message}");
+        }
     }
 
     public bool TryAdd(ShortcutDefinition shortcut)
