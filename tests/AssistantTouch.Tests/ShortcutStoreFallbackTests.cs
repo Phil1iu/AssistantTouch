@@ -140,6 +140,32 @@ public class ShortcutStoreFallbackTests
         Assert.False(store.Save());
         Assert.Equal(ShortcutStore.WriteFailed, store.LastSaveFailure);
         Assert.Single(fileSystem.BackupPaths());
+        // P2-C1：回落备份成功后主保存失败，标志必须复位，下次保存重新备份当前原文。
+        Assert.False(store.FallbackBackupCreated);
+    }
+
+    [Fact]
+    public void Save_BackupThenWriteFailure_BacksUpRestoredOriginalOnNextSave()
+    {
+        (ShortcutStore store, FakeShortcutFileSystem fileSystem) = LoadBroken();
+        fileSystem.FailWrite = true;
+
+        Assert.False(store.Save());
+        Assert.Equal(1, fileSystem.CopyCount);
+        Assert.False(store.FallbackBackupCreated);
+
+        // 用户手工把恢复后的原文写回（模拟「抄回备份」），应用未重启。
+        fileSystem.FailWrite = false;
+        const string restored = "{\"shortcuts\":[]}";
+        fileSystem.Files[FilePath] = Encoding.UTF8.GetBytes(restored);
+
+        Assert.True(store.Save());
+        Assert.Equal(2, fileSystem.CopyCount);
+        Assert.True(store.FallbackBackupCreated);
+
+        string[] backups = fileSystem.BackupPaths();
+        Assert.Equal(2, backups.Length);
+        Assert.Contains(backups, path => Encoding.UTF8.GetString(fileSystem.Files[path]) == restored);
     }
 }
 

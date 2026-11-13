@@ -596,6 +596,13 @@ internal sealed class ShortcutStore
             Debug.WriteLine($"ShortcutStore.Save failed: {exception.Message}");
             LastSaveFailure = WriteFailed;
 
+            // 主保存失败后，磁盘上的源码可能已被用户手工恢复/替换；
+            // 回落保护备份只对「备份时那份原文」有效，下次保存必须重新备份当前文件。
+            if (_isFallback && _fallbackBackedUp)
+            {
+                _fallbackBackedUp = false;
+            }
+
             try
             {
                 if (_fileSystem.FileExists(tempPath))
