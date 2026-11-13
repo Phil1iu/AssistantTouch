@@ -102,6 +102,16 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained true
 - **诊断日志**：每次加载覆盖写 `%LOCALAPPDATA%\AssistantTouch\shortcuts-load.log`，记录时间、路径、是否存在、长度、解析结果、条数、是否回落（`fallback=true/false`）、首个失败原因（含 JSON 异常消息）与内容预览
 - 路径按 JSON 规则写双反斜杠（`"C:\\Windows\\System32\\notepad.exe"`）；非法 JSON（例如只写单反斜杠）会导致整份配置被拒并回落到 6 个默认项，失败原因见上面的日志
 
+## 无障碍（UI Automation）
+- **悬浮球**：UIA 名称「助手触摸」（ControlType.Button、ClassName `BallSurface`、AutomationId `RootGrid`）。对它执行 `Invoke` 等价于未拖动的左键单击——打开径向菜单；环已打开时重复 `Invoke` 被忽略（不重建窗口）。
+- **径向菜单窗口**：UIA 名称「快捷菜单」，HelpText「方向键选择，Enter 执行，Esc 关闭」；打开后读屏可进入该窗口。
+- **小圆与「+」**：每个圆是一个 ControlType.Button 的 UIA 元素，名称为圆上显示文字的完整名称（如「任务管理器」「文件资源管理器」「添加快捷启动」）。
+  - AutomationId：快捷项 `shortcut-<index>`（`index` 为本次环打开时从 0 开始的绘制顺序），「+」为 `add-shortcut`。
+  - HelpText：快捷项「按 Enter 执行；右键更多操作」，「+」「添加系统快捷或应用程序」。
+  - `Invoke` 语义与未拖动的左键单击一致：快捷项执行并关闭环，「+」在圆下方打开添加菜单；键盘 `Enter`/`Space` 仍要求先按方向键进入选中态。
+- 环隐藏期间（例如打开文件对话框）圆会报 `IsOffscreen=true` 并不再接受 `Invoke`；环关闭后旧元素从 UIA 树消失。
+- 读屏用法示例（Narrator）：先聚焦「助手触摸」并按激活键打开环，再在「快捷菜单」里逐个浏览按钮、对目标按激活键执行；Esc 关闭。**Narrator/读屏的人工听感尚未验收**，UIA 名称与模式已由自动化测试与 VM 的 UIA 客户端验证。
+
 ## 已知问题 / 待决策
 - **内存验收口径冲突**：本机空 WPF 模板空闲即 227.9MB（工作集），本项目 207~231MB，
   冲刺账本「空闲内存 < 50MB」在 C#/WPF + 本机环境下不可达。
