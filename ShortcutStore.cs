@@ -239,8 +239,9 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         _shortcuts.Add(shortcut);
-        return Save();
+        return SaveOrRollback(snapshot);
     }
 
     public bool Remove(ShortcutDefinition shortcut)
@@ -258,8 +259,9 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         _shortcuts.RemoveAt(index);
-        return Save();
+        return SaveOrRollback(snapshot);
     }
 
     public bool Replace(ShortcutDefinition oldShortcut, ShortcutDefinition newShortcut)
@@ -277,8 +279,9 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         _shortcuts[index] = newShortcut;
-        return Save();
+        return SaveOrRollback(snapshot);
     }
 
     public int IndexOf(ShortcutDefinition shortcut) => _shortcuts.IndexOf(shortcut);
@@ -307,9 +310,10 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         _shortcuts.RemoveAt(index);
         _shortcuts.Insert(target, shortcut);
-        return Save();
+        return SaveOrRollback(snapshot);
     }
 
     /// <summary>交换两个快捷项的位置；找不到、同一个对象时返回 false；成功立即保存。</summary>
@@ -329,8 +333,9 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         (_shortcuts[firstIndex], _shortcuts[secondIndex]) = (_shortcuts[secondIndex], _shortcuts[firstIndex]);
-        return Save();
+        return SaveOrRollback(snapshot);
     }
 
     /// <summary>
@@ -358,6 +363,7 @@ internal sealed class ShortcutStore
         }
 
         // Name 是 init-only：保留 Kind/Action/Path，创建新实例替换。
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         _shortcuts[index] = new ShortcutDefinition
         {
             Kind = current.Kind,
@@ -366,7 +372,7 @@ internal sealed class ShortcutStore
             Name = normalized
         };
 
-        return Save();
+        return SaveOrRollback(snapshot);
     }
 
     public bool ResetToDefaults()
@@ -378,9 +384,23 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        List<ShortcutDefinition> snapshot = _shortcuts.ToList();
         _shortcuts.Clear();
         _shortcuts.AddRange(ShortcutDefinition.CreateDefaults());
-        return Save();
+        return SaveOrRollback(snapshot);
+    }
+
+    /// <summary>保存失败时恢复调用前的列表快照，避免内存与磁盘不一致（rev-16 P2-N1）。</summary>
+    private bool SaveOrRollback(List<ShortcutDefinition> snapshot)
+    {
+        if (Save())
+        {
+            return true;
+        }
+
+        _shortcuts.Clear();
+        _shortcuts.AddRange(snapshot);
+        return false;
     }
 
     /// <summary>解析 JSON（纯函数，internal 便于单测）：严格校验，任一非法项即返回 false。</summary>

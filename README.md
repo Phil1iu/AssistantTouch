@@ -94,6 +94,7 @@ dotnet publish AssistantTouch.csproj -c Release -r win-x64 --self-contained true
 - **读失败保护**：文件存在但读取/解析失败时回落默认，且不会在打开环时立即覆盖；首次编辑前先把原文件备份为 `shortcuts.backup-<yyyyMMdd-HHmmss>.json`，备份失败则拒绝保存并提示「配置读取失败，已保留原文件；请关闭占用程序后重试」
 - **滚动备份**：每次生产保存前，把当前 `shortcuts.json` 复制为同目录的 `shortcuts.bak-<yyyyMMdd-HHmmss-fff-NNNN>.json`，写盘成功后只保留最近 3 份，更早的自动删除；备份失败只写调试日志，**不阻塞**保存。与上面的回落备份互不影响（回落备份失败会拒绝保存，滚动备份不会）
 - **手动恢复**：关闭应用后，把需要的 `shortcuts.bak-*.json` 复制为 `shortcuts.json`（覆盖现有文件）即可；下次打开环时生效
+- **保存失败回滚**：写盘失败（目录只读、磁盘满、文件被占用等）时，添加/删除/更换/重命名/排序/恢复默认都会把内存列表恢复成调用前的状态并提示「保存失败，请重试」，避免界面显示未落盘的改动、或下次编辑把失败改动一并写盘
 - **快照语义**：环打开期间的添加/删除/重命名/排序以本次打开时加载的列表为基准；若同时在外部修改文件，以最后一次保存为准（last-writer-wins），重新打开环后生效
 - **诊断日志**：每次加载覆盖写 `%LOCALAPPDATA%\AssistantTouch\shortcuts-load.log`，记录时间、路径、是否存在、长度、解析结果、条数、是否回落（`fallback=true/false`）、首个失败原因（含 JSON 异常消息）与内容预览
 - 路径按 JSON 规则写双反斜杠（`"C:\\Windows\\System32\\notepad.exe"`）；非法 JSON（例如只写单反斜杠）会导致整份配置被拒并回落到 6 个默认项，失败原因见上面的日志
