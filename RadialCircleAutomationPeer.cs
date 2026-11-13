@@ -117,7 +117,9 @@ internal sealed class RadialCircleAutomationPeer : FrameworkElementAutomationPee
     /// <summary>Invoke 不抛异常（隐藏/拖拽竞态下静默忽略），由统一入口做守卫。</summary>
     public void Invoke()
     {
-        if (!_circle.IsVisibleForAutomation())
+        // 旧 peer 加固：RebuildRing 会清空并重建圆，已摘下的旧圆按旧序号激活可能命中
+        // 另一个槽位；Parent 为 null 说明它已不在任何树上，直接忽略。
+        if (_circle.Parent is null || !_circle.IsVisibleForAutomation())
         {
             return;
         }

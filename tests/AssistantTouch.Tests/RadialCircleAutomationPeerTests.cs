@@ -3,6 +3,7 @@ using System.Threading;
 using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
+using System.Windows.Controls;
 using Xunit;
 
 namespace AssistantTouch.Tests;
@@ -97,9 +98,12 @@ public class RadialCircleAutomationPeerTests
         int slotIndex = 0,
         RadialSlotKind kind = RadialSlotKind.Shortcut,
         string nameFallback = "桌面",
-        bool isVisible = true)
+        bool isVisible = true,
+        Canvas? host = null)
     {
-        return new RadialCircle(slotIndex, kind, nameFallback, recorder.TryActivate, () => isVisible);
+        var circle = new RadialCircle(slotIndex, kind, nameFallback, recorder.TryActivate, () => isVisible);
+        host?.Children.Add(circle);
+        return circle;
     }
 
     private static AutomationPeer CreatePeer(RadialCircle circle)
@@ -130,7 +134,8 @@ public class RadialCircleAutomationPeerTests
         RunSta(() =>
         {
             var recorder = new ActivationRecorder();
-            RadialCircle circle = CreateCircle(recorder, slotIndex: 2);
+            var host = new Canvas();
+            RadialCircle circle = CreateCircle(recorder, slotIndex: 2, host: host);
             var provider = (IInvokeProvider)CreatePeer(circle).GetPattern(PatternInterface.Invoke)!;
 
             provider.Invoke();
@@ -147,7 +152,8 @@ public class RadialCircleAutomationPeerTests
         RunSta(() =>
         {
             var recorder = new ActivationRecorder();
-            RadialCircle circle = CreateCircle(recorder, isVisible: false);
+            var host = new Canvas();
+            RadialCircle circle = CreateCircle(recorder, isVisible: false, host: host);
             var provider = (IInvokeProvider)CreatePeer(circle).GetPattern(PatternInterface.Invoke)!;
 
             provider.Invoke();
@@ -162,12 +168,33 @@ public class RadialCircleAutomationPeerTests
         RunSta(() =>
         {
             var recorder = new ActivationRecorder { Result = false };
-            RadialCircle circle = CreateCircle(recorder);
+            var host = new Canvas();
+            RadialCircle circle = CreateCircle(recorder, host: host);
             var provider = (IInvokeProvider)CreatePeer(circle).GetPattern(PatternInterface.Invoke)!;
 
             provider.Invoke();
 
             Assert.Equal(1, recorder.Count);
+        });
+    }
+
+    [Fact]
+    public void Invoke_AfterRebuildDetachesCircle_DoesNotCallTryActivate()
+    {
+        // P3-T1：旧 peer 只在旧圆仍挂在树上时才可能按旧序号误激活。
+        RunSta(() =>
+        {
+            var recorder = new ActivationRecorder();
+            var host = new Canvas();
+            RadialCircle circle = CreateCircle(recorder, slotIndex: 1, host: host);
+            var provider = (IInvokeProvider)CreatePeer(circle).GetPattern(PatternInterface.Invoke)!;
+
+            host.Children.Clear(); // 模拟 RebuildRing 清空 RingCanvas
+
+            provider.Invoke();
+
+            Assert.Null(circle.Parent);
+            Assert.Equal(0, recorder.Count);
         });
     }
 
