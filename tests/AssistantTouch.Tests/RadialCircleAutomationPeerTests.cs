@@ -13,25 +13,32 @@ public class ActivationPolicyTests
 {
     [Theory]
     // 0=Keyboard 1=Mouse 2=Uia（枚举是 internal，xunit 的公有测试签名不能直接用）
-    [InlineData(0, true, true, false, true)]
-    [InlineData(0, false, true, false, false)]
-    [InlineData(1, false, true, false, true)]
-    [InlineData(1, true, true, false, true)]
-    [InlineData(2, false, true, false, true)]
-    [InlineData(2, true, true, false, true)]
-    [InlineData(2, false, false, false, false)]
-    [InlineData(1, true, false, false, false)]
-    [InlineData(2, true, true, true, false)]
-    [InlineData(0, true, true, true, false)]
+    // 参数顺序：source, selectionActive, isVisible, isActivating, isClosed, expected
+    [InlineData(0, true, true, false, false, true)]
+    [InlineData(0, false, true, false, false, false)]
+    [InlineData(1, false, true, false, false, true)]
+    [InlineData(1, true, true, false, false, true)]
+    [InlineData(2, false, true, false, false, true)]
+    [InlineData(2, true, true, false, false, true)]
+    [InlineData(2, false, false, false, false, false)]
+    [InlineData(1, true, false, false, false, false)]
+    [InlineData(2, true, true, true, false, false)]
+    [InlineData(0, true, true, true, false, false)]
+    // P3-U4：已发起 Close 后同一 tick 内的迟到激活一律拒绝。
+    [InlineData(2, true, true, false, true, false)]
+    [InlineData(0, true, true, false, true, false)]
     public void ShouldActivate_MatchesTruthTable(
         int sourceValue,
         bool selectionActive,
         bool isVisible,
         bool isActivating,
+        bool isClosed,
         bool expected)
     {
         var source = (ActivationSource)sourceValue;
-        Assert.Equal(expected, ActivationPolicy.ShouldActivate(source, selectionActive, isVisible, isActivating));
+        Assert.Equal(
+            expected,
+            ActivationPolicy.ShouldActivate(source, selectionActive, isVisible, isActivating, isClosed));
     }
 }
 

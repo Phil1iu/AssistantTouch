@@ -17,16 +17,17 @@ internal enum ActivationSource
 internal static class ActivationPolicy
 {
     /// <summary>
-    /// 是否允许激活：窗口隐藏或正在激活时一律拒绝（R6/R7）；
+    /// 是否允许激活：窗口隐藏、正在激活或已发起关闭时一律拒绝（R6/R7/P3-U4）；
     /// 键盘来源额外要求已进入选中态，鼠标与 UIA 不要求。
     /// </summary>
     internal static bool ShouldActivate(
         ActivationSource source,
         bool selectionActive,
         bool isVisible,
-        bool isActivating)
+        bool isActivating,
+        bool isClosed)
     {
-        if (!isVisible || isActivating)
+        if (!isVisible || isActivating || isClosed)
         {
             return false;
         }

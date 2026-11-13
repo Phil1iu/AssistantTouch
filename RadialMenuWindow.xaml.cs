@@ -44,6 +44,9 @@ public partial class RadialMenuWindow : Window
     /// <summary>正在激活中（R7 双重激活守卫：入口置位，finally 清位）。</summary>
     private bool _activating;
 
+    /// <summary>已发起 Close（同一消息泵周期内 IsVisible 可能仍为 true，P3-U4）。</summary>
+    private bool _closed;
+
     /// <summary>当前环上实际渲染的圆（快捷项在前、「+」在末位；Partial 时可能只有「+」）。</summary>
     private sealed record CircleSlot(Border Circle, Border FocusRing, ShortcutDefinition? Shortcut, Point Center);
 
@@ -77,7 +80,7 @@ public partial class RadialMenuWindow : Window
     {
         if (e.Key == Key.Escape)
         {
-            Close();
+            CloseRing();
             e.Handled = true;
             return;
         }
@@ -111,7 +114,7 @@ public partial class RadialMenuWindow : Window
     /// </summary>
     internal bool ActivateSlot(int index, ActivationSource source)
     {
-        if (!ActivationPolicy.ShouldActivate(source, _selectionActive, IsVisible, _activating)
+        if (!ActivationPolicy.ShouldActivate(source, _selectionActive, IsVisible, _activating, _closed)
             || index < 0
             || index >= _circleSlots.Count)
         {
@@ -135,7 +138,7 @@ public partial class RadialMenuWindow : Window
             else
             {
                 ShortcutActions.Execute(slot.Shortcut);
-                Close();
+                CloseRing();
             }
 
             return true;
@@ -146,10 +149,20 @@ public partial class RadialMenuWindow : Window
         }
     }
 
+    /// <summary>
+    /// 关闭环：先置 <see cref="_closed"/> 再 <c>Close()</c>。Window.Close 的 Closed 事件
+    /// 要等下一轮 Dispatcher 才送达，同一 tick 内迟到的 UIA Invoke/键盘激活必须被拦住（P3-U4）。
+    /// </summary>
+    private void CloseRing()
+    {
+        _closed = true;
+        Close();
+    }
+
     private void OnCanvasMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
         // 点非圆区域（包括再次点击大圆位置）关闭。
-        Close();
+        CloseRing();
     }
 
     private void OnCanvasMouseRightButtonUp(object sender, MouseButtonEventArgs e)
