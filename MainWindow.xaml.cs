@@ -426,6 +426,9 @@ public partial class MainWindow : Window
     /// </summary>
     internal void ResetToPrimaryCenter()
     {
+        // 先关闭径向环，避免全屏透明窗口在菜单/对话框期间残留抢输入。
+        CloseRadialMenu();
+
         Rect workArea = SystemParameters.WorkArea;
         Left = workArea.Left + (workArea.Width - Width) / 2;
         Top = workArea.Top + (workArea.Height - Height) / 2;
@@ -479,6 +482,9 @@ public partial class MainWindow : Window
     /// <summary>显示「关于」对话框；右键菜单与托盘菜单共用。</summary>
     internal void ShowAboutDialog()
     {
+        // 先关闭径向环，避免对话框打开期间全屏环仍在屏幕上接收输入。
+        CloseRadialMenu();
+
         string version = GetDisplayVersion();
         MessageBox.Show(
             this,
@@ -503,6 +509,9 @@ public partial class MainWindow : Window
     /// </remarks>
     internal void RequestExit()
     {
+        // 先关闭径向环，避免退出确认框期间全屏环仍在屏幕上接收输入。
+        CloseRadialMenu();
+
         MessageBoxResult result = MessageBox.Show(
             this,
             "退出 AssistantTouch？",
