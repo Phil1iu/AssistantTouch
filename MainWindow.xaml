@@ -129,43 +129,91 @@
                             <ScaleTransform ScaleX="1" ScaleY="1" />
                         </Grid.RenderTransform>
 
-                        <!-- 玻璃底：72% 白，能隐约透出背后的桌面内容。 -->
+                        <!-- 玻璃底：上亮下暗的柔和垂直渐变，平均透明度约 72%（与 #B8 相当），能透出背景。 -->
                         <Ellipse x:Name="GlassBase"
-                                 Fill="#B8FFFFFF"
                                  Stroke="#59000000"
-                                 StrokeThickness="1" />
+                                 StrokeThickness="1">
+                            <Ellipse.Fill>
+                                <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                    <GradientStop Color="#BBFFFFFF" Offset="0" />
+                                    <GradientStop Color="#B5FFFFFF" Offset="1" />
+                                </LinearGradientBrush>
+                            </Ellipse.Fill>
+                        </Ellipse>
 
-                        <!-- 雾面：程序生成的灰度细噪点，透明度 8%（悬停 10%）。 -->
+                        <!-- 雾面：128px 无缝细噪点（4 次采样 + 环绕模糊 + 低频扰动），5%（悬停 7%）。 -->
                         <Ellipse x:Name="GlassNoise"
                                  Fill="{DynamicResource GlassNoiseBrush}"
-                                 Opacity="0.08"
+                                 Opacity="0.05"
                                  IsHitTestVisible="False" />
 
-                        <!-- 高光：左上方柔和径向渐变，营造玻璃厚度。 -->
+                        <!-- 主高光：更小、更柔的左上径向白，营造玻璃厚度。 -->
                         <Ellipse x:Name="GlassGloss" IsHitTestVisible="False">
                             <Ellipse.Fill>
-                                <RadialGradientBrush GradientOrigin="0.28,0.24"
-                                                     Center="0.32,0.28"
-                                                     RadiusX="0.78"
-                                                     RadiusY="0.78">
+                                <RadialGradientBrush GradientOrigin="0.26,0.22"
+                                                     Center="0.30,0.26"
+                                                     RadiusX="0.55"
+                                                     RadiusY="0.55">
                                     <GradientStop Color="#40FFFFFF" Offset="0" />
                                     <GradientStop Color="#00FFFFFF" Offset="1" />
                                 </RadialGradientBrush>
                             </Ellipse.Fill>
                         </Ellipse>
 
-                        <!-- 内圈 1px 半透明白：玻璃边缘反光，与外圈深色描边形成双层玻璃边。 -->
+                        <!-- 内圈 1px 半透明白：玻璃边缘反光。 -->
                         <Ellipse x:Name="GlassInnerRing"
                                  Stroke="#80FFFFFF"
                                  StrokeThickness="1"
-                                 Margin="1"
+                                 Margin="1.5"
+                                 IsHitTestVisible="False" />
+
+                        <!-- 底部内侧暗边：2px 深色弧，从上到下渐显，形成球体纵深。 -->
+                        <Ellipse x:Name="GlassBottomShade"
+                                 StrokeThickness="2"
+                                 Margin="1.5"
+                                 IsHitTestVisible="False">
+                            <Ellipse.Stroke>
+                                <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                    <GradientStop Color="#00000000" Offset="0" />
+                                    <GradientStop Color="#00000000" Offset="0.55" />
+                                    <GradientStop Color="#26000000" Offset="1" />
+                                </LinearGradientBrush>
+                            </Ellipse.Stroke>
+                        </Ellipse>
+
+                        <!-- 底部反光弧：下缘柔和亮线。 -->
+                        <Ellipse x:Name="GlassBottomReflection"
+                                 StrokeThickness="2"
+                                 Margin="3"
+                                 IsHitTestVisible="False">
+                            <Ellipse.Stroke>
+                                <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                    <GradientStop Color="#00FFFFFF" Offset="0" />
+                                    <GradientStop Color="#00FFFFFF" Offset="0.6" />
+                                    <GradientStop Color="#59FFFFFF" Offset="1" />
+                                </LinearGradientBrush>
+                            </Ellipse.Stroke>
+                        </Ellipse>
+
+                        <!-- 软外沿：主描边内侧 1px 低透明度暗羽化，避免硬边；最外像素仍是 #59。 -->
+                        <Ellipse x:Name="GlassSoftEdge"
+                                 Stroke="#2E000000"
+                                 StrokeThickness="1"
+                                 Margin="0.5"
                                  IsHitTestVisible="False" />
                     </Grid>
                     <ControlTemplate.Triggers>
                         <!-- 悬停：整体略提高不透明度、边缘反光更亮；保留 1.04 缩放，不加动画。 -->
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="GlassBase" Property="Fill" Value="#D9FFFFFF" />
-                            <Setter TargetName="GlassNoise" Property="Opacity" Value="0.10" />
+                            <Setter TargetName="GlassBase" Property="Fill">
+                                <Setter.Value>
+                                    <LinearGradientBrush StartPoint="0.5,0" EndPoint="0.5,1">
+                                        <GradientStop Color="#DCFFFFFF" Offset="0" />
+                                        <GradientStop Color="#D6FFFFFF" Offset="1" />
+                                    </LinearGradientBrush>
+                                </Setter.Value>
+                            </Setter>
+                            <Setter TargetName="GlassNoise" Property="Opacity" Value="0.07" />
                             <Setter TargetName="GlassInnerRing" Property="Stroke" Value="#A6FFFFFF" />
                             <Setter TargetName="GlassRoot" Property="RenderTransform">
                                 <Setter.Value>
