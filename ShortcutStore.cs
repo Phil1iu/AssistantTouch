@@ -41,6 +41,9 @@ internal sealed class ShortcutStore
     private readonly string? _fallbackReason;
     private bool _fallbackBackedUp;
 
+    /// <summary>滚动备份名内序号：同一毫秒内多次保存时仍能按文件名排序。</summary>
+    private int _rollingBackupSequence;
+
     /// <summary>仅测试用：捕获 Save 的内容，避免写真实 %LOCALAPPDATA%。</summary>
     private readonly Action<IReadOnlyList<ShortcutDefinition>>? _saveHook;
 
@@ -538,6 +541,7 @@ internal sealed class ShortcutStore
     /// <summary>
     /// 保存（临时文件 + 覆盖移动）。测试钩子存在时不写磁盘。
     /// 回落态第一次保存前先备份原文件；备份失败则拒绝保存并返回 false。
+    /// 生产保存前另复制一份滚动备份（成功后只留最近 3 份），失败不阻塞保存。
     /// </summary>
     public bool Save()
     {
@@ -553,6 +557,9 @@ internal sealed class ShortcutStore
             return false;
         }
 
+        // 每次生产保存前留一份滚动备份；备份失败不阻塞主保存。
+        TryCreateRollingBackup();
+
         string tempPath = $"{_filePath}.{Environment.ProcessId}.tmp";
 
         try
@@ -560,6 +567,7 @@ internal sealed class ShortcutStore
             _fileSystem.CreateDirectory(_directoryPath);
             _fileSystem.WriteAllBytes(tempPath, Serialize(_shortcuts));
             _fileSystem.Move(tempPath, _filePath, overwrite: true);
+            PruneRollingBackups();
             LastSaveFailure = null;
             return true;
         }
@@ -627,6 +635,87 @@ internal sealed class ShortcutStore
         }
 
         return Path.Combine(_directoryPath, $"shortcuts.backup-{stamp}-{Guid.NewGuid():N}.json");
+    }
+
+    /// <summary>
+    /// 生产保存前的滚动备份：只复制当前主文件，失败仅记调试日志，不阻塞主保存。
+    /// 与回落备份（<c>shortcuts.backup-*.json</c>，失败拒绝保存）互不影响。
+    /// </summary>
+    private void TryCreateRollingBackup()
+    {
+        try
+        {
+            if (!_fileSystem.FileExists(_filePath))
+            {
+                return;
+            }
+
+            _fileSystem.Copy(_filePath, BuildRollingBackupPath());
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"ShortcutStore rolling backup skipped: {exception.Message}");
+        }
+    }
+
+    private string BuildRollingBackupPath()
+    {
+        string stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss-fff");
+        int sequence = Interlocked.Increment(ref _rollingBackupSequence);
+        string candidate = Path.Combine(
+            _directoryPath,
+            $"{RollingBackupPrefix}{stamp}-{sequence:D4}.json");
+
+        if (!_fileSystem.FileExists(candidate))
+        {
+            return candidate;
+        }
+
+        for (int index = 1; index < 1000; index++)
+        {
+            string alternate = Path.Combine(
+                _directoryPath,
+                $"{RollingBackupPrefix}{stamp}-{sequence:D4}-{index}.json");
+            if (!_fileSystem.FileExists(alternate))
+            {
+                return alternate;
+            }
+        }
+
+        return Path.Combine(
+            _directoryPath,
+            $"{RollingBackupPrefix}{stamp}-{sequence:D4}-{Guid.NewGuid():N}.json");
+    }
+
+    /// <summary>
+    /// 主保存成功后只保留最近 <see cref="RollingBackupsToKeep"/> 份滚动备份。
+    /// 文件名含时间戳，按名称倒序即时间倒序；删除失败逐条吞掉，不影响保存结果。
+    /// </summary>
+    private void PruneRollingBackups()
+    {
+        try
+        {
+            List<string> backups = _fileSystem
+                .EnumerateFiles(_directoryPath, RollingBackupPrefix + "*.json")
+                .OrderByDescending(path => Path.GetFileName(path), StringComparer.Ordinal)
+                .ToList();
+
+            foreach (string stale in backups.Skip(RollingBackupsToKeep))
+            {
+                try
+                {
+                    _fileSystem.Delete(stale);
+                }
+                catch (Exception exception)
+                {
+                    Debug.WriteLine($"ShortcutStore rolling backup prune skipped: {exception.Message}");
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            Debug.WriteLine($"ShortcutStore rolling backup prune failed: {exception.Message}");
+        }
     }
 
     /// <summary>序列化为与 <see cref="Save"/> 完全一致的 JSON；internal 便于单测 round-trip。</summary>
