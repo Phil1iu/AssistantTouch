@@ -137,6 +137,12 @@ public partial class RadialMenuWindow : Window
             }
             else
             {
+                // 双保险（P2-U1-new）：入口判定后若环已被外部要求关闭，不再执行。
+                if (_closed)
+                {
+                    return false;
+                }
+
                 ShortcutActions.Execute(slot.Shortcut);
                 CloseRing();
             }
@@ -152,8 +158,9 @@ public partial class RadialMenuWindow : Window
     /// <summary>
     /// 关闭环：先置 <see cref="_closed"/> 再 <c>Close()</c>。Window.Close 的 Closed 事件
     /// 要等下一轮 Dispatcher 才送达，同一 tick 内迟到的 UIA Invoke/键盘激活必须被拦住（P3-U4）。
+    /// 外部关闭路径（球窗口 Esc/托盘/重建前）也统一调用这里（P2-U1-new）。
     /// </summary>
-    private void CloseRing()
+    internal void CloseRing()
     {
         _closed = true;
         Close();
@@ -527,7 +534,7 @@ public partial class RadialMenuWindow : Window
             {
                 // 兜底：槽位已重建到别处（理论不可达），保持旧行为。
                 ShortcutActions.Execute(dragged);
-                Close();
+                CloseRing();
             }
 
             return;

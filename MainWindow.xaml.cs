@@ -66,7 +66,7 @@ public partial class MainWindow : Window
     {
         if (_radialMenu is not null && e.Key == Key.Escape)
         {
-            _radialMenu.Close();
+            _radialMenu.CloseRing();
             _radialMenu = null;
             e.Handled = true;
         }
@@ -153,7 +153,7 @@ public partial class MainWindow : Window
     {
         if (_radialMenu is not null)
         {
-            _radialMenu.Close();
+            _radialMenu.CloseRing();
             _radialMenu = null;
         }
     }
@@ -418,7 +418,8 @@ public partial class MainWindow : Window
     /// <summary>左键单击（未拖动，<4px）打开径向快捷菜单。</summary>
     private void OpenRadialMenu()
     {
-        _radialMenu?.Close();
+        // 统一走 CloseRing：先置 _closed 再关闭，阻止同一 tick 内旧环的迟到激活。
+        _radialMenu?.CloseRing();
 
         // 每次打开都重新读取配置：外部修改 shortcuts.json 后无需重启；也排除旧实例的缓存。
         _shortcutStore = ShortcutStore.Load();
