@@ -104,6 +104,8 @@
           MouseLeftButtonDown="OnMouseLeftButtonDown"
           MouseMove="OnMouseMove"
           MouseLeftButtonUp="OnMouseLeftButtonUp"
+          MouseEnter="OnRootMouseEnter"
+          MouseLeave="OnRootMouseLeave"
           TouchDown="OnTouchDown"
           TouchMove="OnTouchMove"
           TouchUp="OnTouchUp"

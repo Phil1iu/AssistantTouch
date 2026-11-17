@@ -4,17 +4,26 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 
 namespace AssistantTouch;
 
 /// <summary>
 /// 桌面悬浮球主窗口：无边框、置顶、半透明、可鼠标/触摸拖拽，并记忆上次位置。
+/// 拖到工作区边缘松手会自动贴边收起（只留 16px 入口），鼠标移上去展开、移开 300ms 后再次收起。
 /// 左键只用于拖拽（未拖动的按下/松开不执行任何动作）；右键菜单与托盘菜单提供重置、自启、关于、退出。
 /// </summary>
 public partial class MainWindow : Window
 {
     /// <summary>超过该设备像素位移才进入拖拽。</summary>
     private const double DragThresholdPixels = 4;
+
+    /// <summary>贴边收起/展开的滑动动画时长（毫秒）。</summary>
+    private const double DockAnimationMilliseconds = 150;
+
+    /// <summary>鼠标离开展开后的球，等待多久再收起（毫秒）；期间回来则取消。</summary>
+    private const int DockCollapseDelayMilliseconds = 300;
 
     private enum PointerSource
     {
@@ -32,6 +41,21 @@ public partial class MainWindow : Window
     private int _activeTouchId = -1;
     private RadialMenuWindow? _radialMenu;
     private ShortcutStore _shortcutStore;
+
+    /// <summary>当前贴边状态；<see cref="DockEdge.None"/> 表示未贴边。</summary>
+    private DockEdge _dockEdge = DockEdge.None;
+
+    /// <summary>贴边时是否处于收起态（只露 16px）；展开后仍保留 <see cref="_dockEdge"/>，鼠标离开会再次收起。</summary>
+    private bool _isDockedCollapsed;
+
+    /// <summary>贴边时球「展开后」应在的工作区内位置：收起坐标由它 + 边 + 工作区推出，落盘也只存它。</summary>
+    private Point _expandedPosition;
+
+    /// <summary>贴边时所在的显示器工作区（DIU）。收起态窗口中心在工作区外，不能再用中心点反查显示器。</summary>
+    private Rect _dockWorkArea;
+
+    /// <summary>鼠标离开后的收起定时器（按 300ms 周期复查，条件不满足就继续等）。</summary>
+    private DispatcherTimer? _dockTimer;
 
     public MainWindow()
     {
@@ -79,10 +103,11 @@ public partial class MainWindow : Window
     /// 必须在 <c>InitializeComponent()</c> 之后、窗口显示之前执行：
     /// 先切到 <c>Manual</c> 再设 Left/Top，窗口才不会先居中再跳一次。
     /// 保存位置会按「窗口中心点所在（或最近）显示器」的工作区钳制。
+    /// 贴边状态只记下来，等 Loaded（拿到最终 DPI/工作区）再摆到收起位置。
     /// </remarks>
     private void RestoreSavedPosition()
     {
-        if (!WindowPositionStore.TryLoad(out double savedLeft, out double savedTop))
+        if (!WindowPositionStore.TryLoad(out double savedLeft, out double savedTop, out DockEdge savedEdge))
         {
             return;
         }
@@ -92,10 +117,13 @@ public partial class MainWindow : Window
         Left = clamped.X;
         Top = clamped.Y;
 
+        _dockEdge = savedEdge;
+        _expandedPosition = clamped;
+
         // 启动钳制后若值变化，立即回写：避免强杀后仍留着越界的旧值。
         if (clamped.X != savedLeft || clamped.Y != savedTop)
         {
-            WindowPositionStore.Save(clamped.X, clamped.Y);
+            SavePosition();
         }
     }
 
@@ -132,20 +160,234 @@ public partial class MainWindow : Window
     /// </remarks>
     private Point ClampToNearestMonitor(double desiredLeft, double desiredTop)
     {
-        DpiScale currentDpi = VisualTreeHelper.GetDpi(this);
+        MonitorLayout.MonitorTarget target = GetNearestTarget(desiredLeft, desiredTop, out DpiScale currentDpi);
+        double targetLeft = desiredLeft * currentDpi.DpiScaleX / target.Dpi.DpiScaleX;
+        double targetTop = desiredTop * currentDpi.DpiScaleY / target.Dpi.DpiScaleY;
+        return WindowClamp.Clamp(targetLeft, targetTop, Width, Height, target.WorkArea);
+    }
 
-        double physicalLeft = desiredLeft * currentDpi.DpiScaleX;
-        double physicalTop = desiredTop * currentDpi.DpiScaleY;
+    /// <summary>按窗口左上角（DIU）选最近显示器，返回该显示器的工作区与其 DPI。</summary>
+    private MonitorLayout.MonitorTarget GetNearestTarget(double left, double top, out DpiScale currentDpi)
+    {
+        currentDpi = VisualTreeHelper.GetDpi(this);
+
+        double physicalLeft = left * currentDpi.DpiScaleX;
+        double physicalTop = top * currentDpi.DpiScaleY;
         double physicalCenterX = physicalLeft + Width * currentDpi.DpiScaleX / 2;
         double physicalCenterY = physicalTop + Height * currentDpi.DpiScaleY / 2;
 
-        MonitorLayout.MonitorTarget target =
-            MonitorLayout.GetNearestTarget(physicalCenterX, physicalCenterY, currentDpi);
+        return MonitorLayout.GetNearestTarget(physicalCenterX, physicalCenterY, currentDpi);
+    }
 
-        double targetLeft = physicalLeft / target.Dpi.DpiScaleX;
-        double targetTop = physicalTop / target.Dpi.DpiScaleY;
+    private MonitorLayout.MonitorTarget GetNearestTarget(Point position, out DpiScale currentDpi)
+    {
+        return GetNearestTarget(position.X, position.Y, out currentDpi);
+    }
 
-        return WindowClamp.Clamp(targetLeft, targetTop, Width, Height, target.WorkArea);
+    /// <summary>
+    /// 贴边到指定边：记下展开位置与所在工作区，落盘，再滑到收起位置。
+    /// </summary>
+    /// <remarks>
+    /// 两个调用来源：
+    /// 拖拽松手贴边（此时 <see cref="_dockEdge"/> 已被 <see cref="ClearDock"/> 清空）用当前窗口位置作展开位置；
+    /// 已经贴边、鼠标离开后再次收起时沿用已知的展开位置——不能取当前窗口位置，
+    /// 鼠标离开得早时展开动画可能还没走完，读到的会是动画中途的坐标。
+    /// </remarks>
+    private void DockTo(DockEdge edge, bool animate)
+    {
+        CommitAnimation();
+
+        if (_dockEdge == DockEdge.None)
+        {
+            _expandedPosition = new Point(Left, Top);
+            _dockWorkArea = GetNearestTarget(_expandedPosition, out _).WorkArea;
+        }
+
+        _dockEdge = edge;
+        _isDockedCollapsed = true;
+        StopDockTimer();
+
+        SavePosition();
+        MoveTo(ComputeDockedPosition(), animate);
+    }
+
+    /// <summary>从收起态展开（鼠标悬停 / 触摸按下 / 直接打开径向菜单）。</summary>
+    private void ExpandFromDock(bool animate)
+    {
+        if (_dockEdge == DockEdge.None)
+        {
+            return;
+        }
+
+        _isDockedCollapsed = false;
+        MoveTo(ComputeExpandedPosition(), animate);
+    }
+
+    /// <summary>解除贴边（开始拖动 / 重置位置）：窗口留在当前位置，之后按普通钳制处理。</summary>
+    private void ClearDock()
+    {
+        if (_dockEdge == DockEdge.None)
+        {
+            return;
+        }
+
+        _dockEdge = DockEdge.None;
+        _isDockedCollapsed = false;
+        StopDockTimer();
+    }
+
+    private Point ComputeDockedPosition()
+    {
+        return EdgeDocking.ComputeDockedPosition(
+            _dockEdge, _expandedPosition.X, _expandedPosition.Y, Width, Height, _dockWorkArea, EdgeDocking.DockVisiblePx);
+    }
+
+    private Point ComputeExpandedPosition()
+    {
+        return EdgeDocking.ComputeExpandedPosition(
+            _dockEdge, _expandedPosition.X, _expandedPosition.Y, Width, Height, _dockWorkArea, EdgeDocking.ExpandMarginPx);
+    }
+
+    /// <summary>
+    /// 落盘：未贴边存当前位置；贴边一律存「展开态」坐标 + 边（收起坐标在工作区外，重启后按边重算）。
+    /// </summary>
+    private void SavePosition()
+    {
+        if (_dockEdge == DockEdge.None)
+        {
+            WindowPositionStore.Save(Left, Top, DockEdge.None);
+            return;
+        }
+
+        WindowPositionStore.Save(_expandedPosition.X, _expandedPosition.Y, _dockEdge);
+    }
+
+    /// <summary>鼠标进入球（收起态下只剩 16px 入口）：停止收起并展开。</summary>
+    private void OnRootMouseEnter(object sender, MouseEventArgs e)
+    {
+        StopDockTimer();
+
+        if (_dockEdge == DockEdge.None || !_isDockedCollapsed)
+        {
+            return;
+        }
+
+        ExpandFromDock(animate: true);
+    }
+
+    /// <summary>鼠标离开球：300ms 后如果还没回来就收起（贴边态才有意义）。</summary>
+    private void OnRootMouseLeave(object sender, MouseEventArgs e)
+    {
+        StartDockTimer();
+    }
+
+    /// <summary>
+    /// 开始 300ms 收起等待。只在「已贴边且已展开」时生效，重复调用无副作用。
+    /// </summary>
+    private void StartDockTimer()
+    {
+        if (_dockEdge == DockEdge.None || _isDockedCollapsed)
+        {
+            return;
+        }
+
+        if (_dockTimer is null)
+        {
+            _dockTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DockCollapseDelayMilliseconds) };
+            _dockTimer.Tick += OnDockTimerTick;
+        }
+
+        _dockTimer.Start();
+    }
+
+    private void StopDockTimer()
+    {
+        _dockTimer?.Stop();
+    }
+
+    /// <summary>
+    /// 收起判定。按 300ms 周期复查而不是「离开时一次性判断」：
+    /// 离开球以后窗口不再收到鼠标事件（径向菜单/右键菜单打开期间尤其明显），
+    /// 只有定时复查才能在条件消失（菜单关闭、鼠标真的走了）之后自然收起。
+    /// </summary>
+    private void OnDockTimerTick(object? sender, EventArgs e)
+    {
+        if (_dockEdge == DockEdge.None || _isDockedCollapsed)
+        {
+            StopDockTimer();
+            return;
+        }
+
+        // 鼠标还在球上（含展开动画把窗口滑到鼠标下）、正在拖动、或菜单开着：继续等下一轮。
+        if (IsMouseOver || _isPointerDown || _radialMenu is not null || IsContextMenuOpen())
+        {
+            return;
+        }
+
+        DockTo(_dockEdge, animate: true);
+    }
+
+    private bool IsContextMenuOpen()
+    {
+        return RootGrid.ContextMenu?.IsOpen == true;
+    }
+
+    /// <summary>平移窗口到指定左上角；<paramref name="animate"/> 为 true 时用 150ms 缓出滑动。</summary>
+    private void MoveTo(Point position, bool animate)
+    {
+        CommitAnimation();
+
+        if (!animate)
+        {
+            Left = position.X;
+            Top = position.Y;
+            return;
+        }
+
+        TimeSpan duration = TimeSpan.FromMilliseconds(DockAnimationMilliseconds);
+        BeginSlideAnimation(LeftProperty, position.X, duration);
+        BeginSlideAnimation(TopProperty, position.Y, duration);
+    }
+
+    /// <summary>
+    /// 停止进行中的滑动动画，并把窗口钉在动画当前所在位置。
+    /// </summary>
+    /// <remarks>
+    /// 动画用 <see cref="FillBehavior.HoldEnd"/>：直接 <c>BeginAnimation(prop, null)</c> 会跳回基础值（动画开始前的位置），
+    /// 拖拽时的「按下位置 + 位移」就会整体错位。先写基础值（动画仍生效、视觉不变）再撤动画，窗口停在当前处。
+    /// </remarks>
+    private void CommitAnimation()
+    {
+        double currentLeft = Left;
+        double currentTop = Top;
+
+        Left = currentLeft;
+        Top = currentTop;
+        BeginAnimation(LeftProperty, null);
+        BeginAnimation(TopProperty, null);
+    }
+
+    private void BeginSlideAnimation(DependencyProperty property, double to, TimeSpan duration)
+    {
+        var animation = new DoubleAnimation(to, duration)
+        {
+            FillBehavior = FillBehavior.HoldEnd,
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        };
+
+        animation.Completed += (_, _) =>
+        {
+            if (!IsLoaded)
+            {
+                return;
+            }
+
+            // 定格收尾：把基础值落到目标位置再撤动画，位置不回弹，也不留下 HeldEnd 的动画对象。
+            SetValue(property, to);
+            BeginAnimation(property, null);
+        };
+
+        BeginAnimation(property, animation);
     }
 
     /// <summary>关闭径向菜单（托盘隐藏、窗口关闭时调用）。</summary>
@@ -162,18 +404,29 @@ public partial class MainWindow : Window
     protected override void OnClosing(CancelEventArgs e)
     {
         CloseRadialMenu();
-        WindowPositionStore.Save(Left, Top);
+        StopDockTimer();
+        SavePosition();
         base.OnClosing(e);
     }
 
-    /// <summary>首次显示后，用最终（可能是目标显示器）的 DPI 再钳制一次并保存。</summary>
+    /// <summary>首次显示后，用最终（可能是目标显示器）的 DPI 再钳制一次并保存；贴边态则摆回收起位置。</summary>
     private void OnWindowLoaded(object sender, RoutedEventArgs e)
     {
+        if (_dockEdge != DockEdge.None)
+        {
+            _dockWorkArea = GetNearestTarget(_expandedPosition, out _).WorkArea;
+            _isDockedCollapsed = true;
+            MoveTo(ComputeDockedPosition(), animate: false);
+            SavePosition();
+            return;
+        }
+
         ClampBallToNearestMonitorAndSaveIfMoved();
     }
 
     /// <summary>
     /// 跨显示器导致 DPI 变化：按新 DPI 重新计算工作区并钳制；拖拽中重置指针/窗口基准，避免跳变。
+    /// 贴边态按新 DPI 重算工作区，收起/展开哪个态就摆到哪个态。
     /// </summary>
     protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
     {
@@ -184,16 +437,35 @@ public partial class MainWindow : Window
             ClampBallToNearestMonitor();
             _pointerDownScreen = _lastPointerScreen;
             _windowAtPointerDown = new Point(Left, Top);
+            return;
         }
-        else
+
+        if (_dockEdge != DockEdge.None)
         {
-            ClampBallToNearestMonitorAndSaveIfMoved();
+            CommitAnimation();
+            _dockWorkArea = GetNearestTarget(_expandedPosition, out _).WorkArea;
+            MoveTo(_isDockedCollapsed ? ComputeDockedPosition() : ComputeExpandedPosition(), animate: false);
+            SavePosition();
+            return;
         }
+
+        ClampBallToNearestMonitorAndSaveIfMoved();
     }
 
     /// <summary>鼠标/触摸共用的按下处理：记录起点与窗口位置，标记当前输入源。</summary>
     private void BeginPointerInteraction(PointerSource source, Point screenPoint)
     {
+        // 先把滑动动画定格：否则下面记下的窗口基准是动画中途的位置，松手会跳。
+        CommitAnimation();
+
+        // 触摸没有悬停：直接按在收起态入口上时立即展开，之后的轻触/拖动都以完整球为基准。
+        if (_dockEdge != DockEdge.None && _isDockedCollapsed)
+        {
+            ExpandFromDock(animate: false);
+        }
+
+        StopDockTimer();
+
         _activeSource = source;
         _isPointerDown = true;
         _isDragging = false;
@@ -227,6 +499,9 @@ public partial class MainWindow : Window
 
         if (_isDragging)
         {
+            // 拖离边缘即解除贴边（口径 6）：之后按普通拖动钳制，松手时再重新判定贴哪条边。
+            ClearDock();
+
             DpiScale dpi = VisualTreeHelper.GetDpi(this);
             Left = _windowAtPointerDown.X + delta.X / dpi.DpiScaleX;
             Top = _windowAtPointerDown.Y + delta.Y / dpi.DpiScaleY;
@@ -245,11 +520,24 @@ public partial class MainWindow : Window
         return wasDragging;
     }
 
-    /// <summary>拖拽结束后：钳制到最近显示器工作区并保存。</summary>
+    /// <summary>
+    /// 拖拽结束后：钳制到最近显示器工作区；球边距工作区边缘 ≤ 8px 时自动贴边收起，否则按普通位置落盘。
+    /// </summary>
     private void FinishDrag()
     {
         ClampBallToNearestMonitor();
-        WindowPositionStore.Save(Left, Top);
+
+        MonitorLayout.MonitorTarget target = GetNearestTarget(Left, Top, out _);
+        DockEdge edge = EdgeDocking.DetectEdge(Left, Top, Width, Height, target.WorkArea, EdgeDocking.SnapThresholdPx);
+
+        if (edge == DockEdge.None)
+        {
+            ClearDock();
+            WindowPositionStore.Save(Left, Top, DockEdge.None);
+            return;
+        }
+
+        DockTo(edge, animate: true);
     }
 
     /// <summary>
@@ -303,6 +591,7 @@ public partial class MainWindow : Window
             if (wasDragging)
             {
                 FinishDrag();
+                StartDockTimer();
             }
 
             e.Handled = true;
@@ -336,6 +625,9 @@ public partial class MainWindow : Window
         {
             OpenRadialMenu();
         }
+
+        // 贴边态：鼠标离开球（去点菜单/移走）后按 300ms 复查收起；鼠标还在球上时定时器空转一轮即继续等。
+        StartDockTimer();
 
         e.Handled = true;
     }
@@ -412,12 +704,21 @@ public partial class MainWindow : Window
             FinishDrag();
         }
 
+        // 触摸没有 MouseLeave：轻触后由定时器在 300ms 后（指针已不在球上）收起。
+        StartDockTimer();
+
         e.Handled = true;
     }
 
     /// <summary>左键单击（未拖动，<4px）打开径向快捷菜单。</summary>
     private void OpenRadialMenu()
     {
+        // 收起态直接开环会以半个球为圆心、环被屏幕边缘裁掉：先展开再取圆心。
+        if (_isDockedCollapsed)
+        {
+            ExpandFromDock(animate: false);
+        }
+
         // 统一走 CloseRing：先置 _closed 再关闭，阻止同一 tick 内旧环的迟到激活。
         _radialMenu?.CloseRing();
 
@@ -435,6 +736,9 @@ public partial class MainWindow : Window
             }
         };
         radial.Show();
+
+        // 环开着时不收起（定时器复查时会跳过），关环后由定时器按鼠标位置决定是否收起。
+        StartDockTimer();
     }
 
     /// <summary>
@@ -445,11 +749,15 @@ public partial class MainWindow : Window
         // 先关闭径向环，避免全屏透明窗口在菜单/对话框期间残留抢输入。
         CloseRadialMenu();
 
+        // 重置即解除贴边：窗口回到工作区中央。
+        CommitAnimation();
+        ClearDock();
+
         Rect workArea = SystemParameters.WorkArea;
         Left = workArea.Left + (workArea.Width - Width) / 2;
         Top = workArea.Top + (workArea.Height - Height) / 2;
         ClampBallToNearestMonitor();
-        WindowPositionStore.Save(Left, Top);
+        WindowPositionStore.Save(Left, Top, DockEdge.None);
     }
 
     /// <summary>右键菜单「重置位置」。</summary>

@@ -98,3 +98,68 @@ public class WindowClampTests
         Assert.Equal(new Point(3000, 300), result);
     }
 }
+
+/// <summary>位置 JSON 中贴边字段（sprint-24）的解析测试。</summary>
+public class WindowPositionStoreEdgeTests
+{
+    [Fact]
+    public void TryParse_OldFormatWithoutEdge_TreatsAsNotDocked()
+    {
+        bool parsed = WindowPositionStore.TryParse("{\"left\":924,\"top\":480}", out double left, out double top, out DockEdge edge);
+
+        Assert.True(parsed);
+        Assert.Equal(924, left);
+        Assert.Equal(480, top);
+        Assert.Equal(DockEdge.None, edge);
+    }
+
+    [Theory]
+    [InlineData("left", DockEdge.Left)]
+    [InlineData("right", DockEdge.Right)]
+    [InlineData("top", DockEdge.Top)]
+    [InlineData("bottom", DockEdge.Bottom)]
+    [InlineData("RIGHT", DockEdge.Right)]
+    [InlineData("Top", DockEdge.Top)]
+    [InlineData("none", DockEdge.None)]
+    public void TryParse_ValidEdge_ReturnsThatEdge(string rawEdge, DockEdge expected)
+    {
+        string json = $"{{\"left\":924,\"top\":480,\"edge\":\"{rawEdge}\"}}";
+
+        bool parsed = WindowPositionStore.TryParse(json, out double left, out double top, out DockEdge edge);
+
+        Assert.True(parsed);
+        Assert.Equal(924, left);
+        Assert.Equal(480, top);
+        Assert.Equal(expected, edge);
+    }
+
+    [Theory]
+    [InlineData("\"diagonal\"")]
+    [InlineData("\"\"")]
+    [InlineData("null")]
+    [InlineData("3")]
+    [InlineData("{\"side\":\"left\"}")]
+    [InlineData("true")]
+    public void TryParse_UnknownEdge_KeepsPositionAndFallsBackToNotDocked(string rawEdge)
+    {
+        string json = $"{{\"left\":924,\"top\":480,\"edge\":{rawEdge}}}";
+
+        bool parsed = WindowPositionStore.TryParse(json, out double left, out double top, out DockEdge edge);
+
+        Assert.True(parsed);
+        Assert.Equal(924, left);
+        Assert.Equal(480, top);
+        Assert.Equal(DockEdge.None, edge);
+    }
+
+    [Fact]
+    public void TryParse_InvalidPositionWithEdge_ReturnsFalseAndNotDocked()
+    {
+        bool parsed = WindowPositionStore.TryParse("{\"left\":\"924\",\"top\":480,\"edge\":\"left\"}", out double left, out double top, out DockEdge edge);
+
+        Assert.False(parsed);
+        Assert.Equal(0, left);
+        Assert.Equal(0, top);
+        Assert.Equal(DockEdge.None, edge);
+    }
+}
