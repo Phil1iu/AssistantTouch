@@ -323,13 +323,85 @@ public partial class MainWindow : Window
             return;
         }
 
-        // 鼠标还在球上（含展开动画把窗口滑到鼠标下）、正在拖动、或菜单开着：继续等下一轮。
-        if (IsMouseOver || _isPointerDown || _radialMenu is not null || IsContextMenuOpen())
+        // 光标还在贴边区域（展开球 ∪ 收起条带的几何并集）、仍在球上、正在拖动、或菜单开着：继续等下一轮。
+        // 不能只靠 IsMouseOver：收起条带伸出工作区那一段（任务栏/相邻显示器/取整误差）命中收起球，
+        // 却落在展开球之外，展开后必然收到 Leave，形成「展开→收起→展开」的 0.3–0.6s 振荡（D110 闪烁）。
+        if (IsCursorInDockRegion() || IsMouseOver || _isPointerDown || _radialMenu is not null || IsContextMenuOpen())
         {
             return;
         }
 
         DockTo(_dockEdge, animate: true);
+    }
+
+    /// <summary>
+    /// 光标是否仍在贴边区域：展开窗口矩形与收起条带矩形的并集（含 <see cref="DockHover.TolerancePx"/> 容差）。
+    /// 这是收起判定与展开兜底的唯一几何口径；<c>IsMouseOver</c> 只作补充。
+    /// </summary>
+    private bool IsCursorInDockRegion()
+    {
+        if (_dockEdge == DockEdge.None || !TryGetCursorScreenDiu(out Point cursor))
+        {
+            return false;
+        }
+
+        var size = new Size(Width, Height);
+
+        return DockHover.IsCursorInDockRegion(
+            cursor,
+            new Rect(ComputeExpandedPosition(), size),
+            new Rect(ComputeDockedPosition(), size),
+            DockHover.TolerancePx);
+    }
+
+    /// <summary>
+    /// 光标在虚拟屏幕上的位置（DIU）：窗口左上角当前（含动画中途）的设备坐标与 <see cref="Window.Left"/>/<see cref="Window.Top"/>（DIU）
+    /// 配对换算，避免把设备像素与 DIU 混在一起比较；混合 DPI 下也不依赖主屏缩放。
+    /// </summary>
+    private bool TryGetCursorScreenDiu(out Point point)
+    {
+        point = default;
+
+        // 球被托盘隐藏/窗口尚未挂到 PresentationSource 时没有可靠的窗口原点，取不到就交给 IsMouseOver 分支。
+        if (!IsVisible || PresentationSource.FromVisual(this) is null)
+        {
+            return false;
+        }
+
+        if (!CursorProbe.TryGetScreenPosition(out Point deviceCursor))
+        {
+            return false;
+        }
+
+        Point originDevice = PointToScreen(new Point(0, 0));
+        DpiScale dpi = VisualTreeHelper.GetDpi(this);
+
+        if (dpi.DpiScaleX <= 0 || dpi.DpiScaleY <= 0)
+        {
+            return false;
+        }
+
+        point = new Point(
+            Left + (deviceCursor.X - originDevice.X) / dpi.DpiScaleX,
+            Top + (deviceCursor.Y - originDevice.Y) / dpi.DpiScaleY);
+        return true;
+    }
+
+    /// <summary>
+    /// 展开的几何兜底：收起态下光标已在贴边区域内（例如窗口收起后滑回光标下方，MouseEnter 已发过、不再重发），
+    /// 鼠标一移动就展开，不用等下一次 MouseEnter。
+    /// </summary>
+    private void TryExpandFromDockOnHover()
+    {
+        if (_dockEdge == DockEdge.None || !_isDockedCollapsed || _isPointerDown)
+        {
+            return;
+        }
+
+        if (IsCursorInDockRegion())
+        {
+            ExpandFromDock(animate: true);
+        }
     }
 
     private bool IsContextMenuOpen()
@@ -582,6 +654,9 @@ public partial class MainWindow : Window
     /// <summary>左键拖动；若捕获仍在但左键已松开（Up 丢失），按拖拽结束处理。</summary>
     private void OnMouseMove(object sender, MouseEventArgs e)
     {
+        // 收起态下鼠标在入口上移动：MouseEnter 漏发时也按几何兜底展开（D110）。
+        TryExpandFromDockOnHover();
+
         if (_activeSource != PointerSource.Mouse)
         {
             return;
