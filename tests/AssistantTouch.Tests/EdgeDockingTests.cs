@@ -236,4 +236,50 @@ public class EdgeDockingTests
         Assert.Equal(tinyArea.Top - (BallHeight - VisiblePx), docked.Y);
         Assert.Equal(tinyArea.Top, expanded.Y);
     }
+
+    [Theory]
+    [InlineData(DockEdge.Left, 4, 480, 0, 480)]         // 松手点距左边 4px → 归一化到贴齐
+    [InlineData(DockEdge.Right, 1844, 480, 1848, 480)]  // 距右边 4px
+    [InlineData(DockEdge.Top, 924, 4, 924, 0)]
+    [InlineData(DockEdge.Bottom, 924, 956, 924, 960)]   // 距下边 4px（tester 观察到的 802/806 情形）
+    public void DockedSaveValue_AfterNormalization_EqualsExpandedPosition(
+        DockEdge edge, double releaseLeft, double releaseTop, double expectedLeft, double expectedTop)
+    {
+        // DockTo 的顺序：记下参考位置（松手点）→ 归一化为展开位 → 落盘。
+        Point normalized = EdgeDocking.ComputeExpandedPosition(
+            edge, releaseLeft, releaseTop, BallWidth, BallHeight, PrimaryWorkArea, EdgeDocking.ExpandMarginPx);
+        Point docked = EdgeDocking.ComputeDockedPosition(
+            edge, normalized.X, normalized.Y, BallWidth, BallHeight, PrimaryWorkArea, VisiblePx);
+
+        var saved = WindowPositionStore.ComposeSavedPosition(edge, normalized.X, normalized.Y, docked.X, docked.Y);
+
+        // 落盘值必须与悬停展开后的位置逐像素一致（O1），而不是松手点。
+        Assert.Equal(new Point(expectedLeft, expectedTop), normalized);
+        Assert.Equal(expectedLeft, saved.Left);
+        Assert.Equal(expectedTop, saved.Top);
+        Assert.Equal(edge, saved.Edge);
+    }
+
+    [Fact]
+    public void ComputeExpandedPosition_IsIdempotent_ForAllEdges()
+    {
+        // DockTo 可能在「已贴边、再次收起」时重复归一化：结果必须不变。
+        foreach (DockEdge edge in new[] { DockEdge.Left, DockEdge.Right, DockEdge.Top, DockEdge.Bottom })
+        {
+            Point release = edge switch
+            {
+                DockEdge.Left => new Point(4, 480),
+                DockEdge.Right => new Point(1844, 480),
+                DockEdge.Top => new Point(924, 4),
+                _ => new Point(924, 956)
+            };
+
+            Point once = EdgeDocking.ComputeExpandedPosition(
+                edge, release.X, release.Y, BallWidth, BallHeight, PrimaryWorkArea, EdgeDocking.ExpandMarginPx);
+            Point twice = EdgeDocking.ComputeExpandedPosition(
+                edge, once.X, once.Y, BallWidth, BallHeight, PrimaryWorkArea, EdgeDocking.ExpandMarginPx);
+
+            Assert.Equal(once, twice);
+        }
+    }
 }

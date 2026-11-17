@@ -192,9 +192,11 @@ public partial class MainWindow : Window
     /// </summary>
     /// <remarks>
     /// 两个调用来源：
-    /// 拖拽松手贴边（此时 <see cref="_dockEdge"/> 已被 <see cref="ClearDock"/> 清空）用当前窗口位置作展开位置；
+    /// 拖拽松手贴边（此时 <see cref="_dockEdge"/> 已被 <see cref="ClearDock"/> 清空）用当前窗口位置作参考位置；
     /// 已经贴边、鼠标离开后再次收起时沿用已知的展开位置——不能取当前窗口位置，
     /// 鼠标离开得早时展开动画可能还没走完，读到的会是动画中途的坐标。
+    /// 最后把参考位置归一化为「按工作区边缘重算的展开位置」（贴边轴贴齐）：松手点可能距边缘 ≤8px，
+    /// 归一化后落盘的坐标与悬停展开后的 Left/Top 逐像素一致，重复调用幂等（rev-24 O1 / D108）。
     /// </remarks>
     private void DockTo(DockEdge edge, bool animate)
     {
@@ -207,6 +209,8 @@ public partial class MainWindow : Window
         }
 
         _dockEdge = edge;
+        _expandedPosition = ComputeExpandedPosition();
+
         _isDockedCollapsed = true;
         StopDockTimer();
 
@@ -416,6 +420,7 @@ public partial class MainWindow : Window
         if (_dockEdge != DockEdge.None)
         {
             _dockWorkArea = GetNearestTarget(_expandedPosition, out _).WorkArea;
+            _expandedPosition = ComputeExpandedPosition(); // O1：旧位置文件可能带 ≤8px 的松手点偏差，恢复时归一化
             _isDockedCollapsed = true;
             MoveTo(ComputeDockedPosition(), animate: false);
             SavePosition();
@@ -445,6 +450,7 @@ public partial class MainWindow : Window
         {
             CommitAnimation();
             _dockWorkArea = GetNearestTarget(_expandedPosition, out _).WorkArea;
+            _expandedPosition = ComputeExpandedPosition(); // O1：按新工作区归一化，落盘值始终等于展开位
             MoveTo(_isDockedCollapsed ? ComputeDockedPosition() : ComputeExpandedPosition(), animate: false);
             SavePosition();
             return;
