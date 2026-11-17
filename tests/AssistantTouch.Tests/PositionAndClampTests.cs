@@ -163,3 +163,79 @@ public class WindowPositionStoreEdgeTests
         Assert.Equal(DockEdge.None, edge);
     }
 }
+
+/// <summary>
+/// 落盘内容的口径测试（rev-24 F1）：贴边态必须写「展开位置 + 边」，
+/// 不能把屏外的收起坐标当普通位置写进 <c>window.json</c>。
+/// </summary>
+/// <remarks>
+/// 窗口类的 <c>SavePosition()</c> 只做一件事：用当前状态调用 <see cref="WindowPositionStore.ComposeSavedPosition"/>。
+/// 所以这里直接钉住那个纯函数与序列化结果，等价于钉住「贴边态落盘内容」这个不变量。
+/// </remarks>
+public class WindowPositionStoreSavedPositionTests
+{
+    [Theory]
+    [InlineData(DockEdge.Left, 0, 480, -56, 480, 0, 480)]      // 左贴边收起时窗口在 x=-56
+    [InlineData(DockEdge.Right, 1848, 480, 1904, 480, 1848, 480)] // 右贴边收起时窗口在 x=1904
+    [InlineData(DockEdge.Top, 924, 0, 924, -56, 924, 0)]        // 上贴边收起时窗口在 y=-56
+    [InlineData(DockEdge.Bottom, 924, 960, 924, 1016, 924, 960)] // 下贴边收起时窗口在 y=1016
+    public void ComposeSavedPosition_Docked_SavesExpandedPositionNotOffscreenDock(
+        DockEdge edge,
+        double expandedLeft,
+        double expandedTop,
+        double currentLeft,
+        double currentTop,
+        double expectedLeft,
+        double expectedTop)
+    {
+        // 传进去的 current 是屏外的收起坐标；落盘必须换成展开位置 + 边。
+        var saved = WindowPositionStore.ComposeSavedPosition(edge, expandedLeft, expandedTop, currentLeft, currentTop);
+
+        Assert.Equal(expectedLeft, saved.Left);
+        Assert.Equal(expectedTop, saved.Top);
+        Assert.Equal(edge, saved.Edge);
+    }
+
+    [Fact]
+    public void ComposeSavedPosition_NotDocked_SavesCurrentPosition()
+    {
+        var saved = WindowPositionStore.ComposeSavedPosition(
+            DockEdge.None, expandedLeft: 0, expandedTop: 0, currentLeft: 924, currentTop: 480);
+
+        Assert.Equal(924, saved.Left);
+        Assert.Equal(480, saved.Top);
+        Assert.Equal(DockEdge.None, saved.Edge);
+    }
+
+    [Theory]
+    [InlineData(DockEdge.Left, "left")]
+    [InlineData(DockEdge.Right, "right")]
+    [InlineData(DockEdge.Top, "top")]
+    [InlineData(DockEdge.Bottom, "bottom")]
+    public void Serialize_Docked_WritesEdgeAndRoundTrips(DockEdge edge, string rawEdge)
+    {
+        var saved = WindowPositionStore.ComposeSavedPosition(edge, 100, 200, -56, 200);
+
+        string json = WindowPositionStore.Serialize(saved);
+
+        Assert.Contains($"\"edge\":\"{rawEdge}\"", json);
+        Assert.True(WindowPositionStore.TryParse(json, out double left, out double top, out DockEdge parsedEdge));
+        Assert.Equal(100, left);
+        Assert.Equal(200, top);
+        Assert.Equal(edge, parsedEdge);
+    }
+
+    [Fact]
+    public void Serialize_NotDocked_KeepsLegacyFormatWithoutEdge()
+    {
+        var saved = WindowPositionStore.ComposeSavedPosition(DockEdge.None, 0, 0, 924, 480);
+
+        string json = WindowPositionStore.Serialize(saved);
+
+        Assert.DoesNotContain("edge", json);
+        Assert.True(WindowPositionStore.TryParse(json, out double left, out double top, out DockEdge edge));
+        Assert.Equal(924, left);
+        Assert.Equal(480, top);
+        Assert.Equal(DockEdge.None, edge);
+    }
+}

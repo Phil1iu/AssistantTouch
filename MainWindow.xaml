@@ -112,7 +112,8 @@
           LostTouchCapture="OnLostTouchCapture">
 
         <!-- 右键菜单：重置位置 / 开机自启 / 关于 / 退出。右键由 ContextMenuService 自动弹出；
-             左键只用于拖拽（未拖动时不执行任何动作）。拖拽为手动实现（4px 阈值），不再使用 DragMove()。 -->
+             左键口径：未拖动松开 = 打开径向菜单（鼠标与 UIA Invoke 等效），拖动 >4px = 移动球，
+             触摸轻触只展开不动作。拖拽为手动实现（4px 阈值），不再使用 DragMove()。 -->
         <local:BallSurfaceElement.ContextMenu>
             <ContextMenu Opened="OnBallMenuOpened" Style="{StaticResource BallContextMenuStyle}">
                 <MenuItem Header="重置位置" Click="OnResetPositionClick" Style="{StaticResource BallMenuItemStyle}" />

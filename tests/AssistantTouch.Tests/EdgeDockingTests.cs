@@ -66,6 +66,37 @@ public class EdgeDockingTests
         Assert.Equal(expectedDock ? DockEdge.Bottom : DockEdge.None, bottomEdge);
     }
 
+    [Theory]
+    [InlineData(5, 3, DockEdge.Top)]     // 两边都在阈值内但间距不同：取更近的一边
+    [InlineData(3, 5, DockEdge.Left)]
+    [InlineData(4, 4, DockEdge.Left)]    // 等距时按 左 → 右 → 上 → 下 优先级
+    [InlineData(8, 8, DockEdge.Left)]    // 阈值边界上的等距同样按优先级
+    [InlineData(8, 7, DockEdge.Top)]
+    public void DetectEdge_TwoEdgesWithinThreshold_PicksNearestThenPriority(
+        double leftGap, double topGap, DockEdge expected)
+    {
+        DockEdge edge = EdgeDocking.DetectEdge(leftGap, topGap, BallWidth, BallHeight, PrimaryWorkArea, Threshold);
+
+        Assert.Equal(expected, edge);
+    }
+
+    [Fact]
+    public void DetectEdge_RightAndBottomWithinThreshold_PicksNearestThenPriority()
+    {
+        // 右下角：右边距 6、下边距 2 → 取下边；两边都是 4 → 按优先级取右边（右在下之前）。
+        DockEdge nearest = EdgeDocking.DetectEdge(
+            PrimaryWorkArea.Right - BallWidth - 6,
+            PrimaryWorkArea.Bottom - BallHeight - 2,
+            BallWidth, BallHeight, PrimaryWorkArea, Threshold);
+        DockEdge tied = EdgeDocking.DetectEdge(
+            PrimaryWorkArea.Right - BallWidth - 4,
+            PrimaryWorkArea.Bottom - BallHeight - 4,
+            BallWidth, BallHeight, PrimaryWorkArea, Threshold);
+
+        Assert.Equal(DockEdge.Bottom, nearest);
+        Assert.Equal(DockEdge.Right, tied);
+    }
+
     [Fact]
     public void DetectEdge_InsideWorkArea_ReturnsNone()
     {

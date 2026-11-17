@@ -12,7 +12,8 @@ namespace AssistantTouch;
 /// <summary>
 /// 桌面悬浮球主窗口：无边框、置顶、半透明、可鼠标/触摸拖拽，并记忆上次位置。
 /// 拖到工作区边缘松手会自动贴边收起（只留 16px 入口），鼠标移上去展开、移开 300ms 后再次收起。
-/// 左键只用于拖拽（未拖动的按下/松开不执行任何动作）；右键菜单与托盘菜单提供重置、自启、关于、退出。
+/// 左键口径：未拖动松开 = 打开径向菜单（鼠标与 UIA Invoke 等效），拖动 &gt;4px = 移动球；
+/// 触摸轻触只展开/不动作；右键菜单与托盘菜单提供重置、自启、关于、退出。
 /// </summary>
 public partial class MainWindow : Window
 {
@@ -72,7 +73,8 @@ public partial class MainWindow : Window
         // UIA Invoke 等价「未拖动的左键单击」：打开径向菜单。
         // 环已打开时直接忽略：重复 Invoke 若走 OpenRadialMenu 会先 Close 再重建窗口，
         // 造成可见闪烁并丢失环内键盘选中态（读屏双击激活时尤其明显）。
-        // 鼠标路径不经此处（OnMouseLeftButtonUp 直接调 OpenRadialMenu），行为不变。
+        // 鼠标路径不经此处（OnMouseLeftButtonUp 直接调 OpenRadialMenu），两条路径行为一致。
+        // 收起态下两条路径都会先展开再取圆心（OpenRadialMenu 内处理），避免环被屏幕边缘裁掉。
         RootGrid.TryInvoke = () =>
         {
             if (_radialMenu is not null)
@@ -136,7 +138,8 @@ public partial class MainWindow : Window
 
         if (Left != oldLeft || Top != oldTop)
         {
-            WindowPositionStore.Save(Left, Top);
+            // 一律走 SavePosition()：贴边态下必须存展开位置 + 边，不能把屏外收起坐标当普通位置存（rev-24 F1）。
+            SavePosition();
         }
     }
 
@@ -249,17 +252,15 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 落盘：未贴边存当前位置；贴边一律存「展开态」坐标 + 边（收起坐标在工作区外，重启后按边重算）。
+    /// 唯一的落盘入口：未贴边存当前位置；贴边一律存「展开态」坐标 + 边（收起坐标在工作区外，重启后按边重算）。
     /// </summary>
+    /// <remarks>
+    /// 所有保存路径都必须经过这里——直接调 <see cref="WindowPositionStore"/> 会绕过贴边口径（rev-24 F1）。
+    /// </remarks>
     private void SavePosition()
     {
-        if (_dockEdge == DockEdge.None)
-        {
-            WindowPositionStore.Save(Left, Top, DockEdge.None);
-            return;
-        }
-
-        WindowPositionStore.Save(_expandedPosition.X, _expandedPosition.Y, _dockEdge);
+        WindowPositionStore.Save(WindowPositionStore.ComposeSavedPosition(
+            _dockEdge, _expandedPosition.X, _expandedPosition.Y, Left, Top));
     }
 
     /// <summary>鼠标进入球（收起态下只剩 16px 入口）：停止收起并展开。</summary>
@@ -533,7 +534,7 @@ public partial class MainWindow : Window
         if (edge == DockEdge.None)
         {
             ClearDock();
-            WindowPositionStore.Save(Left, Top, DockEdge.None);
+            SavePosition();
             return;
         }
 
@@ -541,7 +542,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// 左键按下：准备拖拽。未拖动的松开不执行任何动作（不再打开菜单）。
+    /// 左键按下：准备拖拽（未拖动的松开在 <see cref="OnMouseLeftButtonUp"/> 里打开径向菜单）。
+    /// 贴边收起态下按下会先展开，拖动/单击都以完整球为基准。
     /// </summary>
     private void OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
@@ -651,7 +653,10 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>触摸按下：只接受第一个触点；未拖动的抬起不做任何动作。</summary>
+    /// <summary>
+    /// 触摸按下：只接受第一个触点。触摸没有悬停，按在收起态入口上会先立即展开；
+    /// 未拖动的轻触不打开径向菜单。
+    /// </summary>
     private void OnTouchDown(object sender, TouchEventArgs e)
     {
         if (_activeSource != PointerSource.None)
@@ -687,7 +692,10 @@ public partial class MainWindow : Window
         e.Handled = true;
     }
 
-    /// <summary>触摸抬起：拖拽过则钳制保存；未拖动的轻触不做任何动作。</summary>
+    /// <summary>
+    /// 触摸抬起：拖拽过则钳制并可能贴边；轻触不打开径向菜单。
+    /// 触摸没有 MouseLeave，贴边态下抬起后由 300ms 定时器复查收起（手指已离开时不展开）。
+    /// </summary>
     private void OnTouchUp(object sender, TouchEventArgs e)
     {
         if (_activeSource != PointerSource.Touch || e.TouchDevice.Id != _activeTouchId)
@@ -757,7 +765,7 @@ public partial class MainWindow : Window
         Left = workArea.Left + (workArea.Width - Width) / 2;
         Top = workArea.Top + (workArea.Height - Height) / 2;
         ClampBallToNearestMonitor();
-        WindowPositionStore.Save(Left, Top, DockEdge.None);
+        SavePosition();
     }
 
     /// <summary>右键菜单「重置位置」。</summary>
